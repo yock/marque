@@ -23,6 +23,8 @@ Update rows with a small script (read, split on tabs, set fields, write back); n
 
 - Merge conflicts are mostly additive (enum entries, records, struct fields, test registrations). Take both, in a stable order.
 - A clean textual merge can still fail to compile when one side changed a signature the other side calls. The clean build catches it; never run filtered tests after a failed build — they run the previous binary and pass falsely.
+- **Positional initializers** (C row tables built by macros, tuples, positional constructor calls) are the same hazard: two branches each append a field to the struct, the textual merge is clean or trivially additive, and one side's positional values now land in the other's fields. Check that each row macro lists values in the merged struct's field order; build with warnings visible (`excess elements in scalar initializer`, `braces around scalar initializer` are the tell).
+- When both sides only **appended** to a long file (tests, registries) and git interleaves the two blocks into several hunks, check whether one side only appended to the merge base; if so, the clean result is the other side's file plus that side's appended tail.
 - After merging main, run the tests of the areas the merge touched before the full suite: they fail fastest.
 - A test from a ticket that landed after this branch forked can break on this branch's new default behaviour: fix it on the branch, as the branch's own sweep did for older tests.
 - The user may land on main too. Always fetch and re-check that the branch contains main right before merging. If main moved past the branch only in docs (no code, build files or tests), merging the branch straight onto main needs no new test run; check that with `git diff --name-only`.
