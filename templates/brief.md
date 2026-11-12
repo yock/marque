@@ -34,6 +34,7 @@ Work test-first, one vertical slice at a time:
 
 When every criterion has a passing test, run the full suite once, then the self-check.
 
+- **Never kill a process you didn't start**: no `pkill`, `killall` or `kill` by name or pattern. Other agents' builds and test runs share this machine, and a name matches theirs too. If a command of yours hangs, stop it by its own process id.
 - **Run every build and test in the foreground and wait for it**, however long it takes; give the command a long timeout. Never run one in the background, and **never end your turn while a command is still running**: your session ends when you reply, and the work is then unfinished. Your final reply comes only after the full suite has finished and everything is committed.
 
 ## Test rules

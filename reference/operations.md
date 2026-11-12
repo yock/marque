@@ -29,6 +29,10 @@ Update rows with a small script (read, split on tabs, set fields, write back); n
 - A test from a ticket that landed after this branch forked can break on this branch's new default behaviour: fix it on the branch, as the branch's own sweep did for older tests.
 - The user may land on main too. Always fetch and re-check that the branch contains main right before merging. If main moved past the branch only in docs (no code, build files or tests), merging the branch straight onto main needs no new test run; check that with `git diff --name-only`.
 
+## Shared machine
+
+Implementers and the orchestrator's integration runs share one machine. An implementer that kills test processes by name (`pkill ping_tests`) kills the orchestrator's integration shards too: they all end at the same second with "Subprocess terminated", no failure line and no OOM in the kernel log. The brief template forbids killing by name. When it happens anyway, rerun the integration; it isn't the branch's failure.
+
 ## Landing as one guarded script
 
 Run a landing (preconditions, merge, push, comment, close, worktree and branch removal, ledger) as **one script under `set -e`**, or with every step inside one `if`. Never `checks && merge && … ; tea comments …; git worktree remove …`: when a precondition fails, the steps after the `;` still run. That once force-removed a worktree and marked a ticket landed while nothing had merged (the branch survived only because `git branch -d` refused an unmerged branch). Write the resolution comment to a file **before** the guarded part, so a failure can't leave it unwritten.
