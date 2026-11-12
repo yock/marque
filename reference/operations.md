@@ -31,7 +31,9 @@ Update rows with a small script (read, split on tabs, set fields, write back); n
 
 ## Shared machine
 
-Implementers and the orchestrator's integration runs share one machine. An implementer that kills test processes by name (`pkill ping_tests`) kills the orchestrator's integration shards too: they all end at the same second with "Subprocess terminated", no failure line and no OOM in the kernel log. The brief template forbids killing by name. When it happens anyway, rerun the integration; it isn't the branch's failure.
+Implementers and the orchestrator's integration runs share one machine. **Full test suites must take turns**: give each project's full-suite command a machine-wide lock (`flock /tmp/<project>-full-suite.lock …`) in the project's brief rules, and take the same lock for integration runs. Overlapping suites raise memory pressure until **systemd-oomd** kills the whole cgroup's work at once: every shard of every run ends at the same second with "Subprocess terminated", no failing test, nothing in the kernel log (`oomctl` shows the monitored cgroups and their page scans). Rerun after it; it isn't the branch's failure.
+
+Implementers also never kill processes by name (the brief template forbids it): a name matches other agents' runs too.
 
 ## Landing as one guarded script
 
