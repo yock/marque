@@ -1,0 +1,59 @@
+#591 Spec: Opponents
+body-00-from-wayfinder-map-opponents-76-assembled-in-grill.md	2445	From Wayfinder map: Opponents (#76), assembled in Grilling: assemble and publish Spec: Opponents (#5
+body-01-what-holds-throughout.md	2895	## What holds throughout
+body-02-orders.md	3162	### Orders
+body-03-the-subsystems.md	19	## The subsystems
+body-04-roster-platforms-and-the-hull-register.md	2676	### Roster, platforms and the hull register
+body-05-sensors-and-a-unit-s-picture.md	1716	### Sensors and a unit's picture
+body-06-doctrine-alertness-and-emissions.md	2072	### Doctrine, alertness and emissions
+body-07-groups-messaging-and-radio.md	1171	### Groups, messaging and radio
+body-08-aircraft-and-the-buoy-field.md	932	### Aircraft and the buoy field
+body-09-hostile-weapons-and-counter-fire.md	1067	### Hostile weapons and counter-fire
+body-10-civilians-and-the-intelligence-collector.md	1028	### Civilians and the intelligence collector
+body-11-quieting-trailing-and-collisions.md	1028	### Quieting, trailing and collisions
+body-12-watch-reports-this-spec-raises.md	3835	## Watch reports this spec raises
+body-13-the-debrief.md	3297	## The debrief
+body-14-tuning-values.md	1304	## Tuning values
+body-15-known-simplifications-and-departures-from-the-reco.md	1334	## Known simplifications and departures from the record
+body-16-open-items.md	5137	## Open items
+body-17-handed-to-other-maps.md	3893	## Handed to other maps
+body-18-for-the-build.md	1952	## For the build
+body-19-changes-to-spec-game-design.md	2041	## Changes to Spec: Game Design
+body-20-sources.md	1156	## Sources
+c01.md	60795	## Part 1: Roster, platforms and the hull register
+c02.md	50587	## Part 2: Sensors and a unit's picture
+c03.md	47804	## Part 3: Doctrine, alertness and emissions
+c04.md	32060	## Part 4: Groups, messaging and radio
+c05.md	36973	## Part 5: Aircraft and the buoy field
+c06.md	36697	## Part 6: Hostile weapons and counter-fire
+c07.md	34690	## Part 7: Civilians and the intelligence collector
+c08.md	33870	## Part 8: Quieting, trailing and collisions
+c09.md	2050	**Input from Research: Korshun's buoy fixing and time-late rules for a fixed-sensor datum (#488)**, 
+c10.md	1731	**Input from Research: civilian traffic and platform refinements (#469)**, docs/research/civil-refin
+c11.md	2212	**Input from Research: Soviet submarine regulations and quiet-class patrol reports (#483)**, docs/re
+c12.md	3079	**Input from Research: the Soviet underwater telephone and tactical acoustic comms (#579)**, docs/re
+c13.md	2410	**Input from Research: allied air ASW buoys and patterns (#580)**, docs/research/allied-air-asw.md (
+c14.md	3212	**Input from Research: explosion and breaking-up noise levels (#490)**, docs/research/explosion-tran
+c15.md	1725	**Input from Research: Oscar II's floor, measured coating loss and whether the 688i was tiled (#486)
+c16.md	1962	**Input from Research: surface and air ASW calibration (#475)**, docs/research/asw-calibration.md (7
+c17.md	2288	**Input from Research: a 688i's depth-keeping at PD by sea state, sail geometry and ship squat (#590
+c18.md	2290	**Input from Research: opponent noise and TS calibration (#473)**, docs/research/opponent-noise-cali
+c19.md	2193	**Input from Research: hostile sensor calibration (#482)**, docs/research/hostile-sensor-calibration
+c20.md	1386	**Input from Research: Soviet fixed sensors, radar bands and the redacted NIE passages (#485)**, doc
+c21.md	2627	**Input from Research: hostile weapon refinements (#471)**, docs/research/hostile-weapon-refinements
+c22.md	2507	**Input from Research: Soviet homing theory, SET-40's seeker and countermeasure performance (#484)**
+c23.md	2447	**Input from Research: submarine doctrine refinements (#480)**, docs/research/submarine-doctrine-ref
+c24.md	848	**Input from Research: did Northern Fleet Grishas take the RPK-8 refit by 1995–2000? (#852)**, docs/
+c25.md	3219	**Input from Research: hull register leftovers — refit spans, aircraft counts, allied hulls (#493)**
+c26.md	2542	**Input from Research: radio band leftovers: R-770, buoy uplinks, sub voice at PD, Ch 16 load (#584)
+c27.md	763	**Input from Research: did Soviet ASW ships challenge unknown submerged contacts by underwater telep
+c28.md	314	**Question from the build (#599, aircraft roster):** the spec gives the **Mi-14** both eras. #475 §2
+c29.md	185	**User decision (2026-11-05): the Mi-14 is peak only**, per #475 §2 (Mi-14PL into storage after 1989
+c30.md	1248	**Input from #908** (civil rows placed by size; docs/research/civil-levels.md):
+c31.md	582	**Input from #659** (aircraft fly). Two calibration conflicts and one [G] value:
+c32.md	1403	**Input from #934** (hostile passive arrays and the record's ratios; docs/research/hostile-arrays-ra
+c33.md	832	**Input from #622** (classification, landing soon). Calibration values are all [G] and open to calib
+c34.md	551	**Input from #622** (landing soon). Under the coordinator's Part 3 ruling, a held contact that is un
+c35.md	1107	**Input from #624 (hostile radar), Part 2 radar:**
+c36.md	556	**Input from #911 (civil rows, Part 1):** the VLCC row is re-anchored at **166 ± 6 dB at 100 Hz, V_r
+c37.md	1959	**Input from #962** (AT-2 losing its acquisition at the step to attack speed; decided with the user 

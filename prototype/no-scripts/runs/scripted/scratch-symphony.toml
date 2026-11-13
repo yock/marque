@@ -1,0 +1,21 @@
+# symphony (the orchestration skill, gitea.yock.dev yock/symphony): this repo's settings.
+# Paths are relative to the repo root.
+
+[tracker]
+backend = "gitea"
+repo = "yock/ping"
+login = "yockbot"
+
+[labels]
+ready = "ready-for-agent"
+blocking = "blocking"
+
+[state]
+dir = "/tmp/marque-proto/scripted-state"
+
+[brief]
+worktrees = ".claude/worktrees"
+worktree_prefix = "orch-"
+rules = "/home/myockey/Work/ping/docs/agents/symphony-brief.md"
+explore_notes = "/home/myockey/Work/ping/docs/agents/symphony-explore.md"
+code_dir = "/home/myockey/Work/ping/src"

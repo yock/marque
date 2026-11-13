@@ -1,0 +1,66 @@
+READ BY HAND #966: no `Part of #` line
+READ BY HAND #962: no `Part of #` line
+READ BY HAND #954: no `Blocked by:` line; section lists [766]
+READ BY HAND #583: no `Part of #` line
+READ BY HAND #577: no `Part of #` line
+READ BY HAND #430: no `Part of #` line
+queue 103  frontier 58  externally blocked 14
+#  722  fan   3  spec # 591  c0  Trail: a hostile's station on own-ship's quarter
+#  673  fan   2  spec # 591  c1  The hunt at tracking: Berkut's and Korshun's sequences to a fix
+#  410  fan   1  spec # 365  c4  The debrief's ocean view
+#  642  fan   1  spec # 591  c2  Trail checks: the escort SSN's stern sweep, with the trail-check rate as the first era ove
+#  650  fan   1  spec # 591  c1  Side by direct identification: IFF and voice for ships and aircraft, an HF send for a subm
+#  658  fan   1  spec # 591  c1  Group taskings: the guide's feed, paired bearing fixes, relay pursuit and takeover
+#  669  fan   1  spec # 591  c1  MAD: the run, the slant envelope and the reconfirm before a drop
+#  684  fan   1  spec # 591  c3  APR-2 and APR-3
+#  685  fan   1  spec # 591  c0  Stand-off carriers: the flight abstracted, the payload real
+#  692  fan   1  spec # 591  c4  Countermeasures: the shared noisemaker and the mobile imitator
+#  712  fan   1  spec # 591  c0  The intelligence trawler at the late-Soviet peak
+#  716  fan   1  spec # 591  c1  The heat clock: the crew's heat report and Equipment faults
+#  721  fan   1  spec # 591  c0  Line-ups on every detection in the debrief logs
+#  430  fan   0  spec #   0  c0  Research: rule3's arcs, short-range sub-fan and curvature cap in the tracer  [no blocker declaration]
+#  577  fan   0  spec #   0  c1  Rough sea: taper the surface loss across θc to 2θc, now that the trapped/steep step reache  [no blocker declaration]
+#  966  fan   0  spec #   0  c1  Tracker doc: Gitea does have native dependencies; wayfinder frontier query misses non-task  [no blocker declaration]
+#  826  fan   0  spec #  94  c0  Prosecute: sink a named target
+#  837  fan   0  spec #  94  c0  Covert secondaries
+#  839  fan   0  spec #  94  c2  Counter-detections and heard emissions in the debrief
+#  840  fan   0  spec #  94  c0  The standing orders in force against the true torpedo path
+#  803  fan   0  spec # 117  c0  No close contacts, and an ESM contact's urgency by strength
+#  844  fan   0  spec # 117  c0  Allied submarine notices as boundaries on the chart
+#  846  fan   0  spec # 117  c1  Nav in the debrief after the lift: chart errors, the true bottom, evasion depths and traff
+#  954  fan   0  spec # 117  c0  Hostiles read an accurate chart, not own-ship's chart errors
+#  781  fan   0  spec # 130  c1  Tune the notch and the noisemaker against Peppe's criterion
+#  396  fan   0  spec # 365  c1  Shore-model traffic and the briefed sea-area summary
+#  407  fan   0  spec # 365  c1  Intercept marks into a Master
+#  408  fan   0  spec # 365  c2  Torpedoes heard on broadband
+#  876  fan   0  spec # 365  c0  The sub-source mode term in the field queries and the cost table
+#  882  fan   0  spec # 365  c0  Every mode: a shelf reference set, the field queries, the cost-table charge, and rows for 
+#  602  fan   0  spec # 591  c1  Hull register: surface, counted, aircraft and allied hulls
+#  632  fan   0  spec # 591  c0  The unit's tracker takes every sensor's measurements
+#  641  fan   0  spec # 591  c1  The battery clock and the snorkel routine for diesel classes
+#  646  fan   0  spec # 591  c0  Ship radar emission rules
+#  655  fan   0  spec # 591  c0  Authored posture shifts during a run, reaching each unit only when it hears
+#  656  fan   0  spec # 591  c0  Submarine notices added mid-run reach units by the broadcast
+#  657  fan   0  spec # 591  c0  Ch 16 hails: warships hail the surface vessels they shadow
+#  671  fan   0  spec # 591  c0  Fixed listeners report to the command post
+#  674  fan   0  spec # 591  c0  Aircraft radar doctrine: intermittent sweeps in search, steady once the hunt refines
+#  675  fan   0  spec # 591  c0  Bingo and relief: the hunt handed over on station
+#  686  fan   0  spec # 591  c1  Wake-homers against surface units
+#  687  fan   0  spec # 591  c3  RPK-8 Zapad
+#  693  fan   0  spec # 591  c1  Evasion across the Doppler notch
+#  698  fan   0  spec # 591  c3  Peacetime: readying weapons and the Decree 1310 warning-charge ladder
+#  706  fan   0  spec # 591  c1  Hauling gear when evading
+#  707  fan   0  spec # 591  c2  Civilian lookouts: sighting a raised mast at periscope depth
+#  708  fan   0  spec # 591  c2  A civilian hears a seeker or a detonation through the hull
+#  709  fan   0  spec # 591  c0  Evasion seen by proxy: a hostile's clue from a civilian's manoeuvre
+#  710  fan   0  spec # 591  c1  Chatter: civilians on the marine band
+#  718  fan   0  spec # 591  c1  Standing evasion breaks the rig and shifts the pumps
+#  728  fan   0  spec # 591  c1  Mast strikes: carried away, the run goes on
+#  730  fan   0  spec # 591  c0  A hostile keeps its standoff on its estimated range
+#  732  fan   0  spec # 591  c1  A civilian notices a near-miss
+#  738  fan   0  spec # 591  c0  Lifelines before the lift: the commander's own contacts and one sealed column
+#  739  fan   0  spec # 591  c1  Messages in Lifelines: the command post's column, sloped arrows, the ones own-ship heard
+#  740  fan   0  spec # 591  c0  Near-misses and collisions in the debrief
+#  743  fan   0  spec # 591  c2  Every hostile torpedo path on the debrief plot
+#  744  fan   0  spec # 591  c2  Gear footprints and a snag-sunk trawler in the debrief
+externally blocked: #881<-#897, #845<-#747, #832<-#747, #831<-#778, #830<-#747/#778, #823<-#778, #801<-#747, #792<-#747, #755<-#89/#92, #719<-#747, #691<-#778, #682<-#778, #411<-#77, #402<-#364

@@ -1,0 +1,97 @@
+TICKET PART STUB
+
+---
+
+# How to do this work
+
+You are implementing ticket **#722** in the `root` repository.
+The ticket context above is complete. You don't need the issue tracker, and you must not use it.
+
+## Where you work
+
+- **Your worktree:** `/tmp/marque-proto/root/.claude/worktrees/orch-722`, on branch `build/722-trail`. Every file you read or write and every command you run uses this path. Pass it as the working directory or use absolute paths.
+- **Never touch** `/tmp/marque-proto/root` itself (that is the main checkout), any other worktree, or any other branch.
+- **Never** push, merge, rebase or switch branches; never run the tracker's CLI; never edit the domain docs (`CONTEXT.md`, `docs/adr/`). If you think either needs a change, say so in your report.
+
+## This repository
+
+`ping` is a game written in C with raylib.
+
+- **Never** run `mise run accuracy`, `tools/accuracy/remote.sh` or any research `chain.sh`. If a criterion needs those, verify on the local slice the ticket context names and say so in your report.
+
+## Build and test
+
+```sh
+cmake -S /tmp/marque-proto/root/.claude/worktrees/orch-722 -B /tmp/marque-proto/root/.claude/worktrees/orch-722/build -DCMAKE_BUILD_TYPE=Release   # once
+cmake --build /tmp/marque-proto/root/.claude/worktrees/orch-722/build -j4                                    # always -j4, never more
+/tmp/marque-proto/root/.claude/worktrees/orch-722/build/ping_tests '#722' 'prefix:'                    # only tests whose name contains an argument: seconds
+flock /tmp/ping-full-suite.lock ctest --test-dir /tmp/marque-proto/root/.claude/worktrees/orch-722/build --output-on-failure -j4   # the full suite in 4 shards, ~6-13 min: ONCE, at the end
+```
+
+- Tests are C functions registered in the table in `src/tests/test_runner.c`; test files are `src/tests/test_*.c`. A new test file must be added to both `CMakeLists.txt` and `src/Makefile`, next to its neighbours.
+- **Name every new test with `(#722)` at the end**, as the table's other entries do (`"run-out: … (#838)"`), so `ping_tests '#722'` selects them.
+- Compile often; a compile error is the cheapest failure. In the loop, run **only the filtered tests**: yours (`'#722'`) plus the prefixes of the existing tests in the area you touch, and only after a build that succeeded (after a failed build the old binary runs). The full suite is `ctest` (`ping_tests` runs as 4 shards, `ping_tests_0`–`ping_tests_3`); give it a 1800000 ms timeout. A shard's failure names the failing test: fix it, rerun that test with the filter, then rerun the full `ctest`.
+- If `ping_tests` output is long, redirect it to a file and read only the failures.
+- **Always run the full suite through `flock /tmp/ping-full-suite.lock`**, as above (and `make -C src test` the same way). Several agents share this machine; two full suites at once push memory pressure past systemd-oomd's limit, and it kills every shard of both runs at once ("Subprocess terminated", no failing test). The lock makes them take turns. Filtered `ping_tests` runs don't need it.
+
+## Repo rules that tests enforce or review checks
+
+- The sim, contacts and station code use the engine's math through `src/sim/smath.h`, **never libm** (`sim_check`). Only the station's audio render is exempt.
+- The ocean library calls no libm transcendental (`ocean_check`).
+- Every doctrine or class row value carries a research tag, a ticket number or `[G]` (`doctrine_rows_check`). A starting value you choose from the spec's `[G]` gets `[G]`.
+- Player-facing wording is checked by `wording_check`. Use the domain words in the ticket context.
+- **State size:** run state lives in fixed-size arrays in the `Sim` (or `Contacts`), as the existing code does; don't move it to the heap. `src/tests/test_contacts.c` guards `sizeof(Sim) + sizeof(Contacts)` (12 MiB). If your change grows either by more than 1 KiB, **don't edit that guard's comment** (every ticket appending there conflicts). State in your report what grew and by how many bytes; the orchestrator records it at landing.
+- **Don't rebaseline goldens.** If an ocean golden changes, stop and report it; a rebaseline needs a version bump and a reason.
+- **Don't mock** the sim, contacts or station code: use the real ones.
+- Files and directories are snake_case (raylib conventions). Match the style of the code around you.
+- Use the domain vocabulary from the ticket context in names and test names.
+
+## Workflow
+
+Work test-first, one vertical slice at a time:
+
+1. Take the next behaviour from the **Seams to test** list above.
+2. **Red:** write one test for it, at that seam, through the public interface. Build, run, and **watch it fail** for the right reason.
+3. **Green:** write only enough code to make it pass. Don't build ahead for later tests.
+4. Run the filtered tests. Everything that passed before still passes.
+5. **Commit** (`#722: <what this slice does>`). Small commits: a lost machine loses at most one slice.
+6. Next slice. Let what you learned change the next test.
+
+When every criterion has a passing test, run the full suite once, then the self-check.
+
+- **Never kill a process you didn't start**: no `pkill`, `killall` or `kill` by name or pattern. Other agents' builds and test runs share this machine, and a name matches theirs too. If a command of yours hangs, stop it by its own process id.
+- **Run every build and test in the foreground and wait for it**, however long it takes; give the command a long timeout. Never run one in the background, and **never end your turn while a command is still running**: your session ends when you reply, and the work is then unfinished. Your final reply comes only after the full suite has finished and everything is committed.
+
+## Test rules
+
+- **Test behaviour, not structure.** A test calls the public interface and checks what a caller can observe. It survives a refactor that keeps the behaviour.
+- **Only at the listed seams.** If you need a seam that isn't listed, say so in your report rather than inventing one.
+- **No tautological tests.** The expected value must come from an independent source: a figure in the spec, a worked example, a reference value, a known literal. **Never** compute the expected value the way the code does. For numeric results, write the literal and a comment saying where it comes from. If you can't find an independent source, say so in your report.
+- **Don't mock what the repo owns.** Fake only system boundaries: time, randomness (a fixed seed), files, the network.
+- **No horizontal slicing.** Don't write all the tests first. One test, then its code, then the next.
+- **No refactoring during the loop.** Note refactors you'd like in your report.
+- **One behaviour per test**, named for what it shows, not how.
+- Scripted scenarios: build the smallest setup that shows the behaviour, with a fixed seed.
+
+## Self-check before your final commit
+
+- [ ] Every acceptance criterion has a test that fails without the change and passes with it.
+- [ ] Every expected value has an independent source.
+- [ ] Nothing outside the ticket's scope changed (no drive-by fixes, no speculative options).
+- [ ] The full suite passes.
+- [ ] `git -C /tmp/marque-proto/root/.claude/worktrees/orch-722 status` is clean: everything is committed on `build/722-trail`.
+
+## Your report (keep it under 300 words)
+
+```
+#722: done | partial | blocked
+Commits: <sha  subject>, one per line
+Criteria → tests: <criterion> → <test name>, one per line
+Expected-value sources: <test> → <source>, where not obvious
+Full suite: pass | <failing tests>
+Not done / blocked: <what and why>
+Questions: <spec ambiguities you resolved yourself, and how>
+Suggested follow-ups: <refactors, domain-doc changes, out-of-scope bugs>
+```
+
+If you're blocked by a real ambiguity, stop, commit what's green, and report `blocked` with the question. Don't guess at behaviour the ticket doesn't define.

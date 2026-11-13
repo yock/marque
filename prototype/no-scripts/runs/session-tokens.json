@@ -1,0 +1,92 @@
+[
+  {
+    "title": "Prose brief trial",
+    "model": {
+      "id": "opus",
+      "providerID": "claude-agent",
+      "variant": "medium"
+    },
+    "tokens": {
+      "input": 10,
+      "output": 1397,
+      "reasoning": 174,
+      "cache": {
+        "read": 95747,
+        "write": 8334
+      }
+    },
+    "secs": 18.119
+  },
+  {
+    "title": "Prose split trial",
+    "model": {
+      "id": "opus",
+      "providerID": "claude-agent",
+      "variant": "medium"
+    },
+    "tokens": {
+      "input": 12,
+      "output": 2391,
+      "reasoning": 435,
+      "cache": {
+        "read": 120041,
+        "write": 8287
+      }
+    },
+    "secs": 34.336
+  },
+  {
+    "title": "Prose pick trial C",
+    "model": {
+      "id": "opus",
+      "providerID": "claude-agent",
+      "variant": "medium"
+    },
+    "tokens": {
+      "input": 30,
+      "output": 6822,
+      "reasoning": 2038,
+      "cache": {
+        "read": 483641,
+        "write": 33870
+      }
+    },
+    "secs": 143.168
+  },
+  {
+    "title": "Prose pick trial B",
+    "model": {
+      "id": "opus",
+      "providerID": "claude-agent",
+      "variant": "medium"
+    },
+    "tokens": {
+      "input": 36,
+      "output": 7521,
+      "reasoning": 1467,
+      "cache": {
+        "read": 706775,
+        "write": 40612
+      }
+    },
+    "secs": 156.572
+  },
+  {
+    "title": "Prose pick trial A",
+    "model": {
+      "id": "opus",
+      "providerID": "claude-agent",
+      "variant": "medium"
+    },
+    "tokens": {
+      "input": 28,
+      "output": 6939,
+      "reasoning": 1390,
+      "cache": {
+        "read": 460540,
+        "write": 44558
+      }
+    },
+    "secs": 167.089
+  }
+]

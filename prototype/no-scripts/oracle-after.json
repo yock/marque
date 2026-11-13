@@ -1,0 +1,2512 @@
+{
+ "taken": "2026-11-12T23:38:31",
+ "secs": 26.3,
+ "queue": [
+  {
+   "number": 966,
+   "title": "Tracker doc: Gitea does have native dependencies; wayfinder frontier query misses non-task tickets",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [],
+   "parent": null,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [],
+   "fanout": 0
+  },
+  {
+   "number": 962,
+   "title": "AT-2's step to attack speed raises its self-noise 12 dB and drops its own acquisition",
+   "labels": [
+    "bug",
+    "ready-for-agent"
+   ],
+   "assignees": [
+    "yockbot"
+   ],
+   "native": [],
+   "body": [],
+   "parent": null,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [],
+   "fanout": 0
+  },
+  {
+   "number": 954,
+   "title": "Hostiles read an accurate chart, not own-ship's chart errors",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    766
+   ],
+   "parent": 117,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    766
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 882,
+   "title": "Every mode: a shelf reference set, the field queries, the cost-table charge, and rows for the soft shelf",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    383
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    383
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 881,
+   "title": "The sub-source mode term on every mode's shared stations, and its 125 Hz on",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    383,
+    897
+   ],
+   "parent": 365,
+   "open_blockers": [
+    897
+   ],
+   "native_only": [],
+   "body_only": [
+    383,
+    897
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 876,
+   "title": "The sub-source mode term in the field queries and the cost table",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    382
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    382
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 850,
+   "title": "The underwater telephone: a submarine's short-range path to its teammates, each send an acoustic emission",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    649,
+    650,
+    653
+   ],
+   "parent": 591,
+   "open_blockers": [
+    650
+   ],
+   "native_only": [],
+   "body_only": [
+    649,
+    650,
+    653
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 847,
+   "title": "Fire control in the debrief: shots, torpedo paths and both solutions",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    783,
+    784,
+    813,
+    827
+   ],
+   "parent": 130,
+   "open_blockers": [
+    827
+   ],
+   "native_only": [],
+   "body_only": [
+    783,
+    784,
+    813,
+    827
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 846,
+   "title": "Nav in the debrief after the lift: chart errors, the true bottom, evasion depths and traffic",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    783,
+    784,
+    798,
+    809
+   ],
+   "parent": 117,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    783,
+    784,
+    798,
+    809
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 845,
+   "title": "Traffic on the conn strip: QUERY, the RX and M MSG lamps, the wire's word, and next broadcasts",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    747,
+    792,
+    805,
+    806,
+    808,
+    832
+   ],
+   "parent": 117,
+   "open_blockers": [
+    747,
+    792,
+    832
+   ],
+   "native_only": [],
+   "body_only": [
+    747,
+    792,
+    805,
+    806,
+    808,
+    832
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 844,
+   "title": "Allied submarine notices as boundaries on the chart",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    647,
+    843
+   ],
+   "parent": 117,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    647,
+    843
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 840,
+   "title": "The standing orders in force against the true torpedo path",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    681,
+    784,
+    794
+   ],
+   "parent": 94,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    681,
+    784,
+    794
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 839,
+   "title": "Counter-detections and heard emissions in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    606,
+    621,
+    783,
+    784,
+    785
+   ],
+   "parent": 94,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    606,
+    621,
+    783,
+    784,
+    785
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 837,
+   "title": "Covert secondaries",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    605,
+    606,
+    787
+   ],
+   "parent": 94,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    605,
+    606,
+    787
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 835,
+   "title": "Replies, and the comms ledger in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    651,
+    783,
+    804,
+    833
+   ],
+   "parent": 94,
+   "open_blockers": [
+    833
+   ],
+   "native_only": [],
+   "body_only": [
+    651,
+    783,
+    804,
+    833
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 834,
+   "title": "The search objective",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    833
+   ],
+   "parent": 94,
+   "open_blockers": [
+    833
+   ],
+   "native_only": [],
+   "body_only": [
+    833
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 833,
+   "title": "The contact report order at fire control: naming KAST or crew, judged against the world",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    787,
+    810,
+    813,
+    816,
+    832
+   ],
+   "parent": 94,
+   "open_blockers": [
+    832
+   ],
+   "native_only": [],
+   "body_only": [
+    787,
+    810,
+    813,
+    816,
+    832
+   ],
+   "fanout": 2
+  },
+  {
+   "number": 832,
+   "title": "Tasking status on the conn strip, and the trail's prey",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    747,
+    749,
+    785,
+    787
+   ],
+   "parent": 94,
+   "open_blockers": [
+    747
+   ],
+   "native_only": [],
+   "body_only": [
+    747,
+    749,
+    785,
+    787
+   ],
+   "fanout": 4
+  },
+  {
+   "number": 831,
+   "title": "Standing evasion's one-time acts: cut the wire, the snapshot, one countermeasure, and speed waiting",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    778,
+    794,
+    828,
+    829
+   ],
+   "parent": 94,
+   "open_blockers": [
+    778,
+    829
+   ],
+   "native_only": [],
+   "body_only": [
+    778,
+    794,
+    828,
+    829
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 830,
+   "title": "Each torpedo wire's state on the conn strip",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    747,
+    748,
+    778,
+    794
+   ],
+   "parent": 130,
+   "open_blockers": [
+    747,
+    778
+   ],
+   "native_only": [],
+   "body_only": [
+    747,
+    748,
+    778,
+    794
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 829,
+   "title": "The snapshot: by hand, and the action the standing orders call",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    406,
+    823,
+    827
+   ],
+   "parent": 130,
+   "open_blockers": [
+    823,
+    827
+   ],
+   "native_only": [],
+   "body_only": [
+    406,
+    823,
+    827
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 827,
+   "title": "Rules of engagement: every shot judged at launch, its disqualifiers posted to the verdict",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    779,
+    787,
+    823
+   ],
+   "parent": 130,
+   "open_blockers": [
+    823
+   ],
+   "native_only": [],
+   "body_only": [
+    779,
+    787,
+    823
+   ],
+   "fanout": 4
+  },
+  {
+   "number": 826,
+   "title": "Prosecute: sink a named target",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    779,
+    787
+   ],
+   "parent": 94,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    779,
+    787
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 825,
+   "title": "Tube doors draw on the rig's hydraulic reserve",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    717,
+    823
+   ],
+   "parent": 130,
+   "open_blockers": [
+    823
+   ],
+   "native_only": [],
+   "body_only": [
+    717,
+    823
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 824,
+   "title": "Wired weapons at the tube card and on the tactical plot",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    823
+   ],
+   "parent": 130,
+   "open_blockers": [
+    823
+   ],
+   "native_only": [],
+   "body_only": [
+    823
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 823,
+   "title": "Firing-point procedures and the shot",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    778,
+    822
+   ],
+   "parent": 130,
+   "open_blockers": [
+    778
+   ],
+   "native_only": [],
+   "body_only": [
+    778,
+    822
+   ],
+   "fanout": 7
+  },
+  {
+   "number": 803,
+   "title": "No close contacts, and an ESM contact's urgency by strength",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    627,
+    750,
+    760
+   ],
+   "parent": 117,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    627,
+    750,
+    760
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 801,
+   "title": "The evasion depths shown: the rose on the standing-orders sheet and EVD on the conn strip",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    747,
+    767,
+    793
+   ],
+   "parent": 117,
+   "open_blockers": [
+    747
+   ],
+   "native_only": [],
+   "body_only": [
+    747,
+    767,
+    793
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 795,
+   "title": "An Equipment fault goes dark on its station",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    716,
+    748
+   ],
+   "parent": 94,
+   "open_blockers": [
+    716
+   ],
+   "native_only": [],
+   "body_only": [
+    716,
+    748
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 792,
+   "title": "The conn strip's mast group: ATK / SRCH / RADIO, go to PD and the exposure timer",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    747,
+    748,
+    758,
+    760
+   ],
+   "parent": 94,
+   "open_blockers": [
+    747
+   ],
+   "native_only": [],
+   "body_only": [
+    747,
+    748,
+    758,
+    760
+   ],
+   "fanout": 3
+  },
+  {
+   "number": 781,
+   "title": "Tune the notch and the noisemaker against Peppe's criterion",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    776,
+    777
+   ],
+   "parent": 130,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    776,
+    777
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 755,
+   "title": "The crew voice speaks every watch report",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    89,
+    92,
+    750
+   ],
+   "parent": 94,
+   "open_blockers": [
+    89,
+    92
+   ],
+   "native_only": [],
+   "body_only": [
+    89,
+    92,
+    750
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 745,
+   "title": "Missed evidence: a civilian's evasion seen on a bearing trace",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    410,
+    606,
+    704
+   ],
+   "parent": 591,
+   "open_blockers": [
+    410
+   ],
+   "native_only": [],
+   "body_only": [
+    410,
+    606,
+    704
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 744,
+   "title": "Gear footprints and a snag-sunk trawler in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    703,
+    705,
+    784,
+    787
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    703,
+    705,
+    784,
+    787
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 743,
+   "title": "Every hostile torpedo path on the debrief plot",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    681,
+    737,
+    784
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    681,
+    737,
+    784
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 742,
+   "title": "Shots at neutrals and own side, and blue-on-blue, in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    648,
+    680,
+    705,
+    736,
+    737,
+    827
+   ],
+   "parent": 591,
+   "open_blockers": [
+    827
+   ],
+   "native_only": [],
+   "body_only": [
+    648,
+    680,
+    705,
+    736,
+    737,
+    827
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 741,
+   "title": "Line-up bands and line-up tags in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    721,
+    735,
+    785
+   ],
+   "parent": 591,
+   "open_blockers": [
+    721
+   ],
+   "native_only": [],
+   "body_only": [
+    721,
+    735,
+    785
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 740,
+   "title": "Near-misses and collisions in the debrief",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    729,
+    736,
+    737
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    729,
+    736,
+    737
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 739,
+   "title": "Messages in Lifelines: the command post's column, sloped arrows, the ones own-ship heard",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    651,
+    736
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    651,
+    736
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 738,
+   "title": "Lifelines before the lift: the commander's own contacts and one sealed column",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    735,
+    737
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    735,
+    737
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 732,
+   "title": "A civilian notices a near-miss",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    704,
+    729
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    704,
+    729
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 730,
+   "title": "A hostile keeps its standoff on its estimated range",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    605,
+    609,
+    727
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    605,
+    609,
+    727
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 728,
+   "title": "Mast strikes: carried away, the run goes on",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    614,
+    727
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    614,
+    727
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 726,
+   "title": "Trail checks: a buoy line astern of an SSBN",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    642,
+    664
+   ],
+   "parent": 591,
+   "open_blockers": [
+    642
+   ],
+   "native_only": [],
+   "body_only": [
+    642,
+    664
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 725,
+   "title": "In hostilities the trail is the approach",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    688,
+    722
+   ],
+   "parent": 591,
+   "open_blockers": [
+    722
+   ],
+   "native_only": [],
+   "body_only": [
+    688,
+    722
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 724,
+   "title": "A trail's peacetime end and its report",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    654,
+    723
+   ],
+   "parent": 591,
+   "open_blockers": [
+    723
+   ],
+   "native_only": [],
+   "body_only": [
+    654,
+    723
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 723,
+   "title": "The trailer's answers: own-ship's baffle clear and lost contact",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    633,
+    722
+   ],
+   "parent": 591,
+   "open_blockers": [
+    722
+   ],
+   "native_only": [],
+   "body_only": [
+    633,
+    722
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 722,
+   "title": "Trail: a hostile's station on own-ship's quarter",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    605,
+    609,
+    652
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    605,
+    609,
+    652
+   ],
+   "fanout": 3
+  },
+  {
+   "number": 721,
+   "title": "Line-ups on every detection in the debrief logs",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    603,
+    606,
+    639,
+    714
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    603,
+    606,
+    639,
+    714
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 720,
+   "title": "Orders waiting on the hydraulic reserve, shown on the conn strip",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    717,
+    719,
+    792
+   ],
+   "parent": 591,
+   "open_blockers": [
+    719,
+    792
+   ],
+   "native_only": [],
+   "body_only": [
+    717,
+    719,
+    792
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 719,
+   "title": "Quieting orders on the conn strip, with the speed cap shown",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    714,
+    715,
+    747,
+    748
+   ],
+   "parent": 591,
+   "open_blockers": [
+    747
+   ],
+   "native_only": [],
+   "body_only": [
+    714,
+    715,
+    747,
+    748
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 718,
+   "title": "Standing evasion breaks the rig and shifts the pumps",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    406,
+    714,
+    715,
+    794
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    406,
+    714,
+    715,
+    794
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 716,
+   "title": "The heat clock: the crew's heat report and Equipment faults",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    592,
+    715
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    592,
+    715
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 713,
+   "title": "The intelligence trawler's buoy barrier",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    664,
+    712
+   ],
+   "parent": 591,
+   "open_blockers": [
+    712
+   ],
+   "native_only": [],
+   "body_only": [
+    664,
+    712
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 712,
+   "title": "The intelligence trawler at the late-Soviet peak",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    711
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    711
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 710,
+   "title": "Chatter: civilians on the marine band",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    611,
+    628
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    611,
+    628
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 709,
+   "title": "Evasion seen by proxy: a hostile's clue from a civilian's manoeuvre",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    609,
+    622,
+    633,
+    704
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    609,
+    622,
+    633,
+    704
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 708,
+   "title": "A civilian hears a seeker or a detonation through the hull",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    451,
+    704
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    451,
+    704
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 707,
+   "title": "Civilian lookouts: sighting a raised mast at periscope depth",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    626,
+    704
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    626,
+    704
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 706,
+   "title": "Hauling gear when evading",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    703,
+    704
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    703,
+    704
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 698,
+   "title": "Peacetime: readying weapons and the Decree 1310 warning-charge ladder",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    610,
+    645,
+    680,
+    688
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    610,
+    645,
+    680,
+    688
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 697,
+   "title": "Aircraft attack: the *drop weapon* order, dropped past \u03c3, then home",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    660,
+    669,
+    679,
+    683,
+    684,
+    688,
+    689,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [
+    669,
+    684
+   ],
+   "native_only": [],
+   "body_only": [
+    660,
+    669,
+    679,
+    683,
+    684,
+    688,
+    689,
+    776
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 696,
+   "title": "Surface ships against a torpedo in their picture",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    610,
+    680,
+    692,
+    777
+   ],
+   "parent": 591,
+   "open_blockers": [
+    692
+   ],
+   "native_only": [],
+   "body_only": [
+    610,
+    680,
+    692,
+    777
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 695,
+   "title": "Surface ASW attack: RBU, ship torpedoes and Metel on the guide's data",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    610,
+    679,
+    680,
+    681,
+    685,
+    688,
+    689,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [
+    685
+   ],
+   "native_only": [],
+   "body_only": [
+    610,
+    679,
+    680,
+    681,
+    685,
+    688,
+    689,
+    776
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 694,
+   "title": "Counter-fire down the bearing",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    451,
+    603,
+    691,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [
+    691
+   ],
+   "native_only": [],
+   "body_only": [
+    451,
+    603,
+    691,
+    776
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 693,
+   "title": "Evasion across the Doppler notch",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    608,
+    609,
+    610,
+    621,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    608,
+    609,
+    610,
+    621,
+    776
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 692,
+   "title": "Countermeasures: the shared noisemaker and the mobile imitator",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    679,
+    681,
+    690,
+    777
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    679,
+    681,
+    690,
+    777
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 691,
+   "title": "Submarine attacking: the salvo, the wire shot, self-defence and reload",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    679,
+    681,
+    682,
+    688,
+    689,
+    690,
+    776,
+    778
+   ],
+   "parent": 591,
+   "open_blockers": [
+    682,
+    778
+   ],
+   "native_only": [],
+   "body_only": [
+    679,
+    681,
+    682,
+    688,
+    689,
+    690,
+    776,
+    778
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 687,
+   "title": "RPK-8 Zapad",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    680,
+    681,
+    775
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    680,
+    681,
+    775
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 686,
+   "title": "Wake-homers against surface units",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    681,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    681,
+    776
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 685,
+   "title": "Stand-off carriers: the flight abstracted, the payload real",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    592,
+    683
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    592,
+    683
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 684,
+   "title": "APR-2 and APR-3",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    683,
+    776
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    683,
+    776
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 682,
+   "title": "Wire-guided TEST-71M",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    681,
+    778
+   ],
+   "parent": 591,
+   "open_blockers": [
+    778
+   ],
+   "native_only": [],
+   "body_only": [
+    681,
+    778
+   ],
+   "fanout": 2
+  },
+  {
+   "number": 677,
+   "title": "Own-ship's contact report cues own-side duty forces onto the datum",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    614,
+    651,
+    676,
+    816
+   ],
+   "parent": 591,
+   "open_blockers": [
+    676
+   ],
+   "native_only": [],
+   "body_only": [
+    614,
+    651,
+    676,
+    816
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 676,
+   "title": "Allied aircraft on the same model: P-3s and the Nimrod",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    663,
+    673
+   ],
+   "parent": 591,
+   "open_blockers": [
+    663,
+    673
+   ],
+   "native_only": [],
+   "body_only": [
+    663,
+    673
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 675,
+   "title": "Bingo and relief: the hunt handed over on station",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    652,
+    670
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    652,
+    670
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 674,
+   "title": "Aircraft radar doctrine: intermittent sweeps in search, steady once the hunt refines",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    625,
+    627,
+    664
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    625,
+    627,
+    664
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 673,
+   "title": "The hunt at tracking: Berkut's and Korshun's sequences to a fix",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    667,
+    668,
+    670
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    667,
+    668,
+    670
+   ],
+   "fanout": 2
+  },
+  {
+   "number": 672,
+   "title": "Handing over to aircraft: a ship's contact taken up by a helicopter or patrol aircraft",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    658,
+    665,
+    670
+   ],
+   "parent": 591,
+   "open_blockers": [
+    658
+   ],
+   "native_only": [],
+   "body_only": [
+    658,
+    665,
+    670
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 671,
+   "title": "Fixed listeners report to the command post",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    620,
+    651,
+    670
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    620,
+    651,
+    670
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 669,
+   "title": "MAD: the run, the slant envelope and the reconfirm before a drop",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    619,
+    665
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    619,
+    665
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 663,
+   "title": "Aircraft radio heard by own-ship: live buoys' uplinks and the Ka-27's link",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [
+    "yockbot"
+   ],
+   "native": [],
+   "body": [
+    628,
+    660,
+    662
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    628,
+    660,
+    662
+   ],
+   "fanout": 2
+  },
+  {
+   "number": 658,
+   "title": "Group taskings: the guide's feed, paired bearing fixes, relay pursuit and takeover",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    645,
+    652
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    645,
+    652
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 657,
+   "title": "Ch 16 hails: warships hail the surface vessels they shadow",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    610,
+    611,
+    628
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    610,
+    611,
+    628
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 656,
+   "title": "Submarine notices added mid-run reach units by the broadcast",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    647,
+    651,
+    653
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    647,
+    651,
+    653
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 655,
+   "title": "Authored posture shifts during a run, reaching each unit only when it hears",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    637,
+    643,
+    651,
+    653
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    637,
+    643,
+    651,
+    653
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 650,
+   "title": "Side by direct identification: IFF and voice for ships and aircraft, an HF send for a submarine at PD",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    629,
+    648,
+    649
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    629,
+    648,
+    649
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 646,
+   "title": "Ship radar emission rules",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    610,
+    625,
+    627
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    610,
+    625,
+    627
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 642,
+   "title": "Trail checks: the escort SSN's stern sweep, with the trail-check rate as the first era override",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    607,
+    610,
+    634
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    607,
+    610,
+    634
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 641,
+   "title": "The battery clock and the snorkel routine for diesel classes",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    595,
+    630,
+    637
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    595,
+    630,
+    637
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 638,
+   "title": "Submarine *alarmed* manoeuvres: the breakaway, going deep or across the layer, hovering silent",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    634,
+    635,
+    637
+   ],
+   "parent": 591,
+   "open_blockers": [
+    635
+   ],
+   "native_only": [],
+   "body_only": [
+    634,
+    635,
+    637
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 635,
+   "title": "Active search: a submarine goes active under doctrine at *alarmed*",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [
+    "yockbot"
+   ],
+   "native": [],
+   "body": [
+    609,
+    617
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    609,
+    617
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 632,
+   "title": "The unit's tracker takes every sensor's measurements",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    605,
+    617,
+    621,
+    624,
+    626
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    605,
+    617,
+    621,
+    624,
+    626
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 602,
+   "title": "Hull register: surface, counted, aircraft and allied hulls",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    597,
+    599,
+    601
+   ],
+   "parent": 591,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    597,
+    599,
+    601
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 583,
+   "title": "The DF mast on the conn strip: its raise/lower order and the radio ESM report",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    614,
+    628,
+    792
+   ],
+   "parent": null,
+   "open_blockers": [
+    792
+   ],
+   "native_only": [],
+   "body_only": [
+    614,
+    628,
+    792
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 577,
+   "title": "Rough sea: taper the surface loss across \u03b8c to 2\u03b8c, now that the trapped/steep step reaches ~9 dB",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [],
+   "parent": null,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [],
+   "fanout": 0
+  },
+  {
+   "number": 430,
+   "title": "Research: rule3's arcs, short-range sub-fan and curvature cap in the tracer",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [],
+   "parent": null,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [],
+   "fanout": 0
+  },
+  {
+   "number": 411,
+   "title": "Version stamps on replays and campaign saves",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    77,
+    367
+   ],
+   "parent": 365,
+   "open_blockers": [
+    77
+   ],
+   "native_only": [],
+   "body_only": [
+    77,
+    367
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 410,
+   "title": "The debrief's ocean view",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    409,
+    600,
+    782,
+    783
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    409,
+    600,
+    782,
+    783
+   ],
+   "fanout": 1
+  },
+  {
+   "number": 408,
+   "title": "Torpedoes heard on broadband",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    389,
+    390,
+    774
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    389,
+    390,
+    774
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 407,
+   "title": "Intercept marks into a Master",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    405,
+    814
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    405,
+    814
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 402,
+   "title": "The pulse-type order and where the ping's display lives",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    364,
+    401
+   ],
+   "parent": 365,
+   "open_blockers": [
+    364
+   ],
+   "native_only": [],
+   "body_only": [
+    364,
+    401
+   ],
+   "fanout": 0
+  },
+  {
+   "number": 396,
+   "title": "Shore-model traffic and the briefed sea-area summary",
+   "labels": [
+    "ready-for-agent"
+   ],
+   "assignees": [],
+   "native": [],
+   "body": [
+    377,
+    393,
+    808,
+    841
+   ],
+   "parent": 365,
+   "open_blockers": [],
+   "native_only": [],
+   "body_only": [
+    377,
+    393,
+    808,
+    841
+   ],
+   "fanout": 0
+  }
+ ],
+ "frontier": [
+  722,
+  673,
+  410,
+  642,
+  650,
+  658,
+  669,
+  684,
+  685,
+  692,
+  712,
+  716,
+  721,
+  430,
+  577,
+  966,
+  826,
+  837,
+  839,
+  840,
+  803,
+  844,
+  846,
+  954,
+  781,
+  396,
+  407,
+  408,
+  876,
+  882,
+  602,
+  632,
+  641,
+  646,
+  655,
+  656,
+  657,
+  671,
+  674,
+  675,
+  686,
+  687,
+  693,
+  698,
+  706,
+  707,
+  708,
+  709,
+  710,
+  718,
+  728,
+  730,
+  732,
+  738,
+  739,
+  740,
+  743,
+  744
+ ]
+}
