@@ -1,15 +1,15 @@
 # Symphony
 
-Symphony delegates a spec's implementation tickets to implementer agents and lands their work. It is the stage after wayfinding: a map's decisions define a spec, `to-tickets` splits the spec into implementation tickets, and symphony works them down.
+Symphony delegates implementation tickets to implementer agents and lands their work, under the command of a developer who holds its session. It is the stage after wayfinding: a map's decisions define a spec, `to-tickets` splits the spec into implementation tickets, and symphony works down every ready ticket in the queue, whichever spec it came from.
 
 ## Language
 
 **Spec**:
-The written definition of a change, the parent of its implementation tickets. Usually the end product of a wayfinder map.
+The written definition of a change, the usual parent of its implementation tickets. Usually the end product of a wayfinder map.
 _Avoid_: PRD, plan
 
 **Implementation ticket**:
-One vertical slice of a spec, sized for one agent session, declaring the tickets that block it. Produced by `to-tickets`.
+A ticket specified fully enough to be built in isolation in one agent session, declaring the tickets that block it. Usually a vertical slice of a spec produced by `to-tickets`, either self-contained or pointing at the issues that carry its detail; any other fully specified ticket, such as a triaged bug fix, counts too.
 _Avoid_: wayfinder ticket, task
 
 **Decision ticket**:
@@ -17,13 +17,21 @@ A wayfinder map's ticket, whose resolution is a decision rather than built work.
 _Avoid_: implementation ticket
 
 **Queue**:
-The implementation tickets labelled ready for an agent.
+The implementation tickets labelled ready for an agent. The label is someone's claim that a ticket is ready; the orchestrator verifies it and may refer the ticket back to the developer, naming what it finds missing.
 
 **Frontier**:
 The queued implementation tickets that are unclaimed and whose blockers are all closed.
 
+**Developer**:
+The human who holds the orchestrator's session, grants its commission, answers its questions, and can step in to steer or stop it at any time.
+_Avoid_: user, operator, admiral
+
+**Commission**:
+The authority the developer grants the orchestrator for one run: what it may do without asking, and the limits it works within.
+_Avoid_: settings, config, plan
+
 **Orchestrator**:
-The agent that picks, briefs, dispatches, reviews, integrates, lands and closes implementation tickets.
+The agent that picks, briefs, dispatches, reviews, integrates, lands and closes implementation tickets, within its commission.
 _Avoid_: dispatcher, manager
 
 **Implementer**:
@@ -31,7 +39,7 @@ An agent that builds one implementation ticket in its own worktree and reports b
 _Avoid_: worker, subagent
 
 **Brief**:
-The file an implementer works from: the ticket, its spec sources, the design fixed at its seams, and the shared rules.
+The file an implementer works from: the ticket, its relevant sources, the design fixed at its seams, and the shared rules.
 _Avoid_: prompt
 
 **Landing**:
