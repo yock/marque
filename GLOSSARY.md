@@ -30,6 +30,10 @@ _Avoid_: user, operator, admiral
 The authority the developer grants the orchestrator for one run: what it may do without asking, and the limits it works within.
 _Avoid_: settings, config, plan
 
+**Extension**:
+Instructions the developer adds at one of the orchestrator's fixed extension points, for a project or a machine. An extension may add to or tighten the orchestrator's method, never loosen it.
+_Avoid_: plugin, hook, override
+
 **Orchestrator**:
 The agent that picks, briefs, dispatches, reviews, integrates, lands and closes implementation tickets, within its commission.
 _Avoid_: dispatcher, manager
