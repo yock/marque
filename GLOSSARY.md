@@ -47,4 +47,5 @@ The file an implementer works from: the ticket, its relevant sources, the design
 _Avoid_: prompt
 
 **Landing**:
-Merging an integrated, green ticket branch onto the main branch, then closing its ticket.
+Merging an integrated, green ticket branch onto the target branch, directly or through the ticket's pull request, then making sure its ticket is closed. The target branch is a term of the commission, the repo's main branch unless the developer names another. A ticket whose pull request is still open is not landed.
+_Avoid_: shipping, merging (for the whole act)
