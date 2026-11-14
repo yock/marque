@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""A stub `tea` for the frontier tests. Only `tea api [--login L] PATH` exists.
+
+STUB_TEA_FIXTURE   a JSON object mapping a request key to its response. The key is
+                   PATH without its query string, plus `?labels=X` when present.
+                   `page=N` for N > 1 answers `[]`; a missing key answers
+                   `{"message": "not found"}` with exit 0, as real tea does.
+STUB_TEA_LOG       a file to append `start PATH[ login=L]` / `end PATH[ login=L]`.
+STUB_TEA_FAIL      a substring of PATH; matching calls print to stderr and exit 1.
+
+While a call is open the stub holds `<log>.lock`; if it cannot create it, the log
+gets an `OVERLAP` line, which is how a test detects calls made in parallel.
+"""
+import json
+import os
+import sys
+import time
+
+
+def log(line):
+    path = os.environ.get("STUB_TEA_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+
+def response(path):
+    fixture = os.environ.get("STUB_TEA_FIXTURE")
+    data = json.loads(open(fixture, encoding="utf-8").read()) if fixture else {}
+    base, _, query = path.partition("?")
+    params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+    key = base + (f"?labels={params['labels']}" if "labels" in params else "")
+    if params.get("page") not in (None, "1"):
+        return []
+    return data.get(key, {"message": "not found"})
+
+
+def main(argv):
+    if argv[:1] != ["api"]:
+        print("stub tea: only `tea api` is supported", file=sys.stderr)
+        return 1
+    rest = argv[1:]
+    login = None
+    if rest[:1] == ["--login"] and len(rest) > 1:
+        login, rest = rest[1], rest[2:]
+    if not rest:
+        print("stub tea: api needs a path", file=sys.stderr)
+        return 1
+    path = rest[0]
+    tag = f" login={login}" if login else ""
+
+    lock = None
+    if os.environ.get("STUB_TEA_LOG"):
+        lock = os.environ["STUB_TEA_LOG"] + ".lock"
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            lock = None
+            log(f"OVERLAP {path}{tag}")
+
+    log(f"start {path}{tag}")
+    try:
+        fail = os.environ.get("STUB_TEA_FAIL")
+        if fail and fail in path:
+            print(f"stub tea: forced failure on {path}", file=sys.stderr)
+            return 1
+        time.sleep(0.05)
+        print(json.dumps(response(path)))
+        return 0
+    finally:
+        log(f"end {path}{tag}")
+        if lock:
+            os.remove(lock)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
