@@ -206,3 +206,27 @@ class CommissionPointersTest(unittest.TestCase):
         for tracker in TRACKERS:
             with self.subTest(tracker=tracker):
                 self.assertIn(f"reference/trackers/{tracker}.md", text)
+
+
+class ExtensionsReferenceTest(unittest.TestCase):
+    def test_extensions_names_the_five_points_the_two_files_and_approval(self):
+        # #8's resolution: five points, two files, approval recorded in the plan,
+        # and a mid-run change re-approved.
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        for point in ("commission", "dispatch", "brief", "review", "notify"):
+            with self.subTest(point=point):
+                self.assertIn(point, text)
+        for marker in (
+            "docs/agents/marque.md",
+            "~/.config/marque/marque.md",
+            "plan.md",
+            "re-approv",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_notify_events_live_here_and_the_battery_example_is_gone(self):
+        # #8: every ten landings is a core event; battery emergency left the list.
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        self.assertIn("every ten landings", text)
+        self.assertNotIn("battery emergency", text)
