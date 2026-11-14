@@ -1,0 +1,415 @@
+"""frontier.py on GitHub and GitLab, run as a subprocess against stub `gh` / `glab`.
+
+Nothing here imports the scripts. One queue is written once, in neutral terms, and
+converted into each tracker's API shape; the expected frontier is a literal worked
+out by hand from that queue.
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from urllib.parse import quote
+
+REPO = Path(__file__).resolve().parent.parent
+SCRIPTS = REPO / "skills" / "marque" / "scripts"
+STUBS = Path(__file__).resolve().parent / "stubs"
+FRONTIER = SCRIPTS / "frontier.py"
+REPO_NAME = "o/r"
+LABEL = "ready-for-agent"
+
+
+# The one queue, in neutral terms: one open spec (#1), a closed #3, an open #4, a
+# queue of five tickets and one assigned ticket.
+#
+#   #6  labelled, natively blocked by the open #4      -> externally blocked
+#   #7  labelled, body `Blocked by: #3`; #3 is closed  -> on the frontier
+#   #8  labelled, natively parented to #1              -> on the frontier, parent 1
+#   #9  labelled, body `Part of #1`                    -> on the frontier, parent 1
+#   #10 labelled, assigned to dev                      -> never on the frontier
+#
+# Every ticket has fan-out 0: #6 is blocked, and its blocker #4 is not queued.
+QUEUE = [
+    {"number": 1, "title": "The spec", "state": "open", "labels": [], "assignees": [],
+     "body": "", "comments": 0, "native_blockers": [], "parent": None},
+    {"number": 3, "title": "Already done", "state": "closed", "labels": [], "assignees": [],
+     "body": "", "comments": 0, "native_blockers": [], "parent": None},
+    {"number": 4, "title": "Still open", "state": "open", "labels": [], "assignees": [],
+     "body": "", "comments": 0, "native_blockers": [], "parent": None},
+    {"number": 6, "title": "Native blocked", "state": "open", "labels": [LABEL],
+     "assignees": [], "body": "", "comments": 0, "native_blockers": [4], "parent": None},
+    {"number": 7, "title": "Body blocked", "state": "open", "labels": [LABEL],
+     "assignees": [], "body": "Blocked by: #3", "comments": 0, "native_blockers": [],
+     "parent": None},
+    {"number": 8, "title": "Native parent child", "state": "open", "labels": [LABEL],
+     "assignees": [], "body": "", "comments": 0, "native_blockers": [], "parent": 1},
+    {"number": 9, "title": "Body parent child", "state": "open", "labels": [LABEL],
+     "assignees": [], "body": "Part of #1", "comments": 0, "native_blockers": [],
+     "parent": None},
+    {"number": 10, "title": "Assigned", "state": "open", "labels": [LABEL],
+     "assignees": ["dev"], "body": "", "comments": 0, "native_blockers": [], "parent": None},
+]
+
+# Worked out by hand from the queue above: #6 is off the frontier (its blocker #4 is
+# open and outside the queue), #10 is assigned; #8 and #9 come before #7 because a
+# parent sorts first. All fan-outs are 0.
+EXPECTED = (
+    "queue 5  frontier 3  externally blocked 1\n"
+    "#    8  fan   0  parent #   1  c0  Native parent child\n"
+    "#    9  fan   0  parent #   1  c0  Body parent child\n"
+    "#    7  fan   0  parent     -  c0  Body blocked\n"
+    "externally blocked: #6<-#4\n"
+)
+
+
+def gitea_fixture(queue):
+    """The queue in `tea api` shapes. Gitea has no native parent, so `parent` is a body line."""
+    raw = {}
+    for t in queue:
+        body = t["body"]
+        if t["parent"] is not None:
+            body += f"\n\nPart of #{t['parent']}"
+        raw[t["number"]] = {
+            "number": t["number"], "title": t["title"], "state": t["state"], "body": body,
+            "labels": [{"name": x} for x in t["labels"]],
+            "assignees": [{"login": x} for x in t["assignees"]],
+            "comments": t["comments"],
+            "repository": {"full_name": REPO_NAME},
+        }
+    fixture = {
+        "repos/o/r/issues": [raw[n] for n in raw if raw[n]["state"] == "open"],
+        f"repos/o/r/issues?labels={LABEL}": [
+            raw[n] for n in raw if raw[n]["state"] == "open" and LABEL in t_labels(raw[n])],
+    }
+    for n, issue in raw.items():
+        fixture[f"repos/o/r/issues/{n}"] = issue
+        fixture[f"repos/o/r/issues/{n}/dependencies"] = [
+            raw[b] for b in blocker_numbers(queue, n)]
+    return fixture
+
+
+def t_labels(issue):
+    return [lab["name"] for lab in issue["labels"]]
+
+
+def blocker_numbers(queue, n):
+    for t in queue:
+        if t["number"] == n:
+            return t["native_blockers"]
+    return []
+
+
+def github_fixture(queue):
+    """The queue in GitHub's API shapes, read through `gh api`."""
+    raw = {}
+    for t in queue:
+        raw[t["number"]] = {
+            "number": t["number"], "title": t["title"], "state": t["state"], "body": t["body"],
+            "labels": [{"name": x} for x in t["labels"]],
+            "assignees": [{"login": x} for x in t["assignees"]],
+            "comments": t["comments"],
+            "repository": {"full_name": REPO_NAME},
+            "parent_issue_url": (
+                f"https://api.github.com/repos/{REPO_NAME}/issues/{t['parent']}"
+                if t["parent"] is not None else None),
+        }
+    fixture = {
+        "repos/o/r/issues": [raw[n] for n in raw if raw[n]["state"] == "open"],
+        f"repos/o/r/issues?labels={LABEL}": [
+            raw[n] for n in raw if raw[n]["state"] == "open" and LABEL in t_labels(raw[n])],
+    }
+    for n, issue in raw.items():
+        fixture[f"repos/o/r/issues/{n}"] = issue
+        fixture[f"repos/o/r/issues/{n}/dependencies/blocked_by"] = [
+            raw[b] for b in blocker_numbers(queue, n)]
+    return fixture
+
+
+PROJECT = quote(REPO_NAME, safe="")
+
+
+def gitlab_fixture(queue):
+    """The queue in GitLab's API shapes, read through `glab api` and its GraphQL."""
+    raw = {}
+    for t in queue:
+        raw[t["number"]] = {
+            "iid": t["number"], "title": t["title"], "description": t["body"],
+            "state": "opened" if t["state"] == "open" else "closed",
+            "labels": list(t["labels"]),
+            "assignees": [{"username": x} for x in t.get("assignees", [])],
+            "user_notes_count": t["comments"],
+            "references": {"full": f"{REPO_NAME}#{t['number']}"},
+        }
+    fixture = {
+        f"projects/{PROJECT}/issues": [
+            raw[n] for n in raw if raw[n]["state"] == "opened"],
+        f"projects/{PROJECT}/issues?labels={LABEL}": [
+            raw[n] for n in raw if raw[n]["state"] == "opened" and LABEL in raw[n]["labels"]],
+    }
+    for n, issue in raw.items():
+        fixture[f"projects/{PROJECT}/issues/{n}"] = issue
+        fixture[f"projects/{PROJECT}/issues/{n}/links"] = [
+            {"iid": b, "state": raw[b]["state"], "references": {"full": f"{REPO_NAME}#{b}"},
+             "link_type": "is_blocked_by"}
+            for b in blocker_numbers(queue, n)]
+    for t in queue:
+        p = t["parent"]
+        nodes = [] if p is None else [
+            {"iid": str(t["number"]), "widgets": [{"parent": {
+                "iid": str(p), "state": "opened",
+                "webUrl": f"https://gitlab.com/{REPO_NAME}/-/work_items/{p}"}}]}]
+        fixture[f"graphql:{t['number']}"] = {
+            "data": {"project": {"workItems": {"nodes": nodes}}}}
+    return fixture
+
+
+class BackendCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.log = self.dir / "calls.log"
+        self.fixture_path = self.dir / "fixture.json"
+
+    def run_frontier(self, backend, fixture, *args, extra_env=None):
+        self.fixture_path.write_text(json.dumps(fixture))
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("SYMPHONY", "STUB_", "GH_", "GITLAB_", "MARQUE_"))}
+        env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
+        stub = {"gitea": "TEA", "github": "GH", "gitlab": "GLAB"}[backend]
+        env[f"STUB_{stub}_FIXTURE"] = str(self.fixture_path)
+        env[f"STUB_{stub}_LOG"] = str(self.log)
+        env.update(extra_env or {})
+        cmd = [sys.executable, str(FRONTIER), "--backend", backend, "--repo", REPO_NAME]
+        cmd += list(args)
+        return subprocess.run(cmd, cwd=self.dir, capture_output=True, text=True, env=env)
+
+    def calls(self):
+        return [line.split() for line in self.log.read_text().splitlines()]
+
+
+class SameFrontierTest(BackendCase):
+    def test_one_queue_yields_the_same_frontier_on_all_three_backends(self):
+        gitea = self.run_frontier("gitea", gitea_fixture(QUEUE))
+        self.assertEqual(gitea.returncode, 0, gitea.stderr)
+        self.assertEqual(gitea.stdout, EXPECTED)
+
+        github = self.run_frontier("github", github_fixture(QUEUE))
+        self.assertEqual(github.returncode, 0, github.stderr)
+        self.assertEqual(github.stdout, EXPECTED)
+
+        gitlab = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+        self.assertEqual(gitlab.returncode, 0, gitlab.stderr)
+        self.assertEqual(gitlab.stdout, EXPECTED)
+
+
+class LoudFailureTest(BackendCase):
+    def test_a_failed_github_blocked_by_call_exits_nonzero_and_names_the_call(self):
+        r = self.run_frontier("github", github_fixture(QUEUE),
+                              extra_env={"STUB_GH_FAIL": "blocked_by"})
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("gh api", r.stderr)
+        self.assertIn("repos/o/r/issues/6/dependencies/blocked_by", r.stderr)
+
+    def test_a_failed_gitlab_links_call_exits_nonzero_and_names_the_call(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              extra_env={"STUB_GLAB_FAIL": "links"})
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("glab api", r.stderr)
+        self.assertIn(f"projects/{PROJECT}/issues/6/links", r.stderr)
+
+
+class GitLabLinksTest(BackendCase):
+    def test_only_is_blocked_by_links_block_and_the_graphql_parent_is_read(self):
+        # #9's link to #5 is `blocks` (it blocks #5, not the other way round), so #9
+        # stays free. #10's link is `is_blocked_by` #6, so it waits on the open #6.
+        # #11's parent comes from GraphQL. All fan-outs are 0 (#5 is not queued).
+        queue = [
+            {"number": 1, "title": "The spec", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 5, "title": "Another ticket", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 6, "title": "A blocker", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 9, "title": "Blocks another", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [5],
+             "parent": None},
+            {"number": 10, "title": "Is blocked", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [6],
+             "parent": None},
+            {"number": 11, "title": "Child", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": 1},
+        ]
+        fixture = gitlab_fixture(queue)
+        fixture[f"projects/{PROJECT}/issues/9/links"][0]["link_type"] = "blocks"
+
+        r = self.run_frontier("gitlab", fixture)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "queue 3  frontier 2  externally blocked 1\n"
+            "#   11  fan   0  parent #   1  c0  Child\n"
+            "#    9  fan   0  parent     -  c0  Blocks another\n"
+            "externally blocked: #10<-#6\n"))
+        starts = [c[1] for c in self.calls() if c[0] == "start"]
+        self.assertIn("graphql:11", starts)
+
+
+class SequentialTest(BackendCase):
+    def test_github_calls_are_one_at_a_time_and_the_lists_come_first_after_login(self):
+        # With --login, `gh auth token` is the first call; then the two queues.
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.log.read_text().splitlines()
+        self.assertNotIn("OVERLAP", lines)
+        kinds = [line.split()[0] for line in lines]
+        self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
+        starts = [line.split()[1] for line in lines if line.startswith("start ")]
+        self.assertEqual(starts[0], "auth/token")
+        self.assertEqual(starts[1:3], [
+            "repos/o/r/issues?state=open&labels=ready-for-agent&per_page=100&page=1",
+            "repos/o/r/issues?state=open&per_page=100&page=1",
+        ])
+
+    def test_gitlab_calls_are_one_at_a_time_starting_with_the_two_lists(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.log.read_text().splitlines()
+        self.assertNotIn("OVERLAP", lines)
+        kinds = [line.split()[0] for line in lines]
+        self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
+        starts = [line.split()[1] for line in lines if line.startswith("start ")]
+        self.assertEqual(starts[:2], [
+            f"projects/{PROJECT}/issues?state=opened&scope=all"
+            "&labels=ready-for-agent&per_page=100&page=1",
+            f"projects/{PROJECT}/issues?state=opened&scope=all&per_page=100&page=1",
+        ])
+
+
+class GitHubParentTest(BackendCase):
+    def test_a_native_parent_ranks_the_ticket_and_shows_in_json(self):
+        # #5 is parented to #1 by `parent_issue_url` alone: its body is empty. #6 has
+        # no parent. Both fan out nothing (#1 is not queued).
+        queue = [
+            {"number": 1, "title": "The spec", "state": "open", "labels": [],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": None},
+            {"number": 5, "title": "Child", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": 1},
+            {"number": 6, "title": "Orphan", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": None},
+        ]
+
+        r = self.run_frontier("github", github_fixture(queue), "--json")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [
+            {"number": 5, "title": "Child", "fanout": 0, "parent": 1, "comments": 0,
+             "hand": []},
+            {"number": 6, "title": "Orphan", "fanout": 0, "parent": None, "comments": 0,
+             "hand": []},
+        ])
+
+
+class IdentityTest(BackendCase):
+    def test_github_login_signs_every_api_call_and_never_puts_the_token_in_argv(self):
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        api = [ln for ln in starts if ln.split()[1].startswith("repos/")]
+        self.assertTrue(api)
+        self.assertTrue(all(ln.endswith(" token=tok-bot") for ln in api), api)
+        self.assertTrue(all("tok-bot" not in ln.split(" token=")[0] for ln in starts), starts)
+
+    def test_github_login_token_is_not_echoed_on_a_failure(self):
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot",
+                              extra_env={"STUB_GH_FAIL": "blocked_by"})
+
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("tok-bot", r.stderr)
+        self.assertNotIn("tok-bot", r.stdout)
+        self.assertIn("gh api", r.stderr)
+
+    def test_gitlab_login_names_the_variable_that_holds_the_token(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              "--login", "MARQUE_GITLAB_TOKEN",
+                              extra_env={"MARQUE_GITLAB_TOKEN": "glab-secret"})
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(starts)
+        self.assertTrue(all(ln.endswith(" token=glab-secret") for ln in starts), starts)
+        self.assertTrue(all("glab-secret" not in ln.split(" token=")[0] for ln in starts), starts)
+
+    def test_gitlab_login_names_an_unset_variable_and_fails_loudly(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              "--login", "MARQUE_GITLAB_TOKEN")
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("MARQUE_GITLAB_TOKEN", r.stderr)
+        self.assertNotIn("glab-secret", r.stderr)
+
+    def test_without_login_no_token_is_set(self):
+        gh = self.run_frontier("github", github_fixture(QUEUE))
+        self.assertEqual(gh.returncode, 0, gh.stderr)
+        gh_starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(all(ln.endswith(" token=-") for ln in gh_starts), gh_starts)
+
+        self.log.unlink()
+        glab = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+        self.assertEqual(glab.returncode, 0, glab.stderr)
+        glab_starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(all(ln.endswith(" token=-") for ln in glab_starts), glab_starts)
+
+
+class SplitGitHubTest(BackendCase):
+    def test_a_spec_is_split_through_the_github_backend(self):
+        from tests.test_split_spec import BODY, FILES, INDEX
+
+        fixture = {
+            "repos/o/r/issues/18": {
+                "number": 18, "title": "Spec: Thing", "state": "open", "body": BODY,
+                "labels": [], "assignees": [], "comments": 2,
+                "repository": {"full_name": REPO_NAME}},
+            "repos/o/r/issues/18/comments": [
+                {"body": "First comment.\n"}, {"body": None}],
+        }
+        self.fixture_path.write_text(json.dumps(fixture))
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("SYMPHONY", "STUB_", "GH_", "GITLAB_", "MARQUE_"))}
+        env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
+        env["STUB_GH_FIXTURE"] = str(self.fixture_path)
+        env["STUB_GH_LOG"] = str(self.log)
+        state = self.dir / "state"
+
+        r = subprocess.run(
+            [sys.executable, str(SCRIPTS / "split_spec.py"), "--backend", "github",
+             "--repo", REPO_NAME, "--state-dir", str(state), "18"],
+            cwd=self.dir, capture_output=True, text=True, env=env)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = state / "specs" / "18"
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         sorted(list(FILES) + ["index.txt"]))
+        for name, content in FILES.items():
+            self.assertEqual((out / name).read_text(), content)
+        self.assertEqual((out / "index.txt").read_text(), INDEX)
+        self.assertEqual(
+            r.stdout, f"#18: 4 body sections, 2 comments -> {out}\n")
+
+
+if __name__ == "__main__":
+    unittest.main()
