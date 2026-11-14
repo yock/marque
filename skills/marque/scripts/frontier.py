@@ -18,11 +18,44 @@ parent before those without, then parent number, then issue number.
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _tracker import TrackerError, backend  # noqa: E402
+
+TOP = re.compile(r"(?mi)^[ \t]*Blocked by:(.*)$")
+SECTION = re.compile(r"(?ms)^#{2,}[ \t]*Blocked by[ \t]*\n(.*?)(?=^#{2,} |\Z)")
+PARENT_SECTION = re.compile(r"(?ms)^#{2,}[ \t]*Parent[ \t]*\n(.*?)(?=^#{2,} |\Z)")
+PART = re.compile(r"(?mi)^[ \t]*Part of #(\d+)")
+NUM = re.compile(r"#(\d+)")
+CROSS = re.compile(r"\b([\w.-]+/[\w.-]+)#(\d+)\b")
+URL = re.compile(r"https?://\S+")
+BULLETS = re.compile(r"^(?:\s*[-*+]\s*)+")
+
+
+class Level:
+    """One queued ticket after its native and body edges have been read."""
+
+    def __init__(self, ticket):
+        self.ticket = ticket
+        self.number = ticket["number"]
+        self.body_blockers = set()
+        self.body_declared = False
+        self.native = []
+        self.blockers = set()
+        self.open_blockers = []
+        self.parent = None
+        self.reasons = []
+
+    @property
+    def labels(self):
+        return self.ticket["labels"]
+
+    @property
+    def comments(self):
+        return self.ticket["comments"]
 
 
 def parse_args(argv):
@@ -36,6 +69,57 @@ def parse_args(argv):
     ap.add_argument("--json", action="store_true", help="print the frontier as JSON")
     ap.add_argument("--limit", type=int, default=30, help="frontier lines to print (default 30)")
     return ap.parse_args(argv)
+
+
+def declares_none(text):
+    """True when a declaration's text is `None…`, list bullets aside."""
+    return BULLETS.sub("", text).lower().startswith("none")
+
+
+def scan(text):
+    """The same-repo numbers a declaration names (URLs and cross-repo refs excluded)."""
+    return {int(n) for n in NUM.findall(CROSS.sub(" ", URL.sub(" ", text)))}
+
+
+def read_body(level):
+    """Read the body's blocker and parent forms into `level`."""
+    body = level.ticket["body"]
+    top = TOP.search(body)
+    section = SECTION.search(body)
+    top_set = set() if top and declares_none(top.group(1)) else (scan(top.group(1)) if top else None)
+    sec_set = (set() if section and declares_none(section.group(1))
+               else (scan(section.group(1)) if section else None))
+    level.body_declared = top is not None or section is not None
+    level.body_blockers = (top_set or set()) | (sec_set or set())
+    if top_set is not None and sec_set is not None and top_set != sec_set:
+        level.reasons.append(
+            f"Blocked by line {sorted(top_set)} and section {sorted(sec_set)} disagree "
+            "(both counted)")
+
+    part = PART.search(body)
+    parent_section = PARENT_SECTION.search(body)
+    sec_parent = NUM.search(parent_section.group(1)) if parent_section else None
+    from_section = int(sec_parent.group(1)) if sec_parent else None
+    from_part = int(part.group(1)) if part else None
+    if from_section is not None and from_part is not None and from_section != from_part:
+        level.reasons.append(f"## Parent says #{from_section} and Part of says #{from_part} "
+                             "disagree (both counted); using ## Parent")
+    level.parent = from_section if from_section is not None else from_part
+
+
+def merge_native(level, native):
+    """Union the native blockers into the body's, reporting a mismatch.
+
+    Gitea's endpoint answers an empty list where there are no native edges; that is
+    the hand-written style, not a disagreement with the body.
+    """
+    native_numbers = {ref["number"] for ref in native} if native is not None else set()
+    level.native = native or []
+    level.blockers = native_numbers | level.body_blockers
+    if native_numbers and level.body_declared and native_numbers != level.body_blockers:
+        level.reasons.append(
+            f"native {sorted(native_numbers)} vs body {sorted(level.body_blockers)} "
+            "(both counted)")
 
 
 def main(argv=None):
@@ -53,29 +137,56 @@ def run(a):
     tracker = backend(a.backend, a.repo, a.login)
     queue = tracker.open_issues(a.label)
     open_set = {i["number"] for i in tracker.open_issues()}
+    by_number = {t["number"]: t for t in queue}
 
-    blockers = {}
-    for ticket in sorted(queue, key=lambda i: i["number"]):
-        blockers[ticket["number"]] = tracker.dependencies(ticket["number"])
+    levels = {}
+    for ticket in sorted(queue, key=lambda t: t["number"]):
+        level = Level(ticket)
+        read_body(level)
+        merge_native(level, tracker.dependencies(level.number))
+        level.open_blockers = [b for b in sorted(level.blockers)
+                               if _is_open(level, b, open_set)]
+        levels[level.number] = level
 
-    waiting = [t for t in queue if a.waiting_label in t["labels"]]
-    front = [t for t in queue
-             if not t["assignees"]
-             and a.waiting_label not in t["labels"]
-             and all(r["state"] == "closed" for r in blockers[t["number"]])]
-    front.sort(key=lambda t: t["number"])
+    waiting = [lv for lv in levels.values() if a.waiting_label in lv.labels]
+    hand = [lv for lv in levels.values() if lv.reasons]
+    external = {lv.number: [b for b in lv.open_blockers if b not in by_number]
+                for lv in levels.values()}
 
-    return _text(a, queue, waiting, front)
+    front = [lv for lv in levels.values()
+             if not lv.ticket["assignees"]
+             and a.waiting_label not in lv.labels
+             and not lv.open_blockers]
+    front.sort(key=lambda lv: lv.number)
+
+    return _text(a, queue, waiting, hand, front, external)
 
 
-def _text(a, queue, waiting, front):
+def _is_open(level, number, open_set):
+    for ref in level.native:
+        if ref["number"] == number and ref["state"] in ("open", "closed"):
+            return ref["state"] == "open"
+    return number in open_set
+
+
+def _parent_text(parent):
+    return f"#{parent:>4}" if parent is not None else f"{'-':>5}"
+
+
+def _text(a, queue, waiting, hand, front, external):
     lines = []
-    for ticket in sorted(waiting, key=lambda t: t["number"]):
-        lines.append(f"WAITING #{ticket['number']} ({a.waiting_label})")
-    lines.append(f"queue {len(queue)}  frontier {len(front)}  externally blocked 0")
-    for ticket in front[:a.limit]:
-        lines.append(f"#{ticket['number']:>5}  fan   0  parent {'-':>5}  c{ticket['comments']}  "
-                     f"{ticket['title'][:90]}")
+    for lv in sorted(waiting, key=lambda x: x.number):
+        lines.append(f"WAITING #{lv.number} ({a.waiting_label})")
+    for lv in sorted(hand, key=lambda x: x.number):
+        lines.append(f"READ BY HAND #{lv.number}: " + "; ".join(lv.reasons))
+    ext = sorted((lv for lv in external if external[lv]), key=lambda x: x)
+    lines.append(f"queue {len(queue)}  frontier {len(front)}  externally blocked {len(ext)}")
+    for lv in front[:a.limit]:
+        lines.append(f"#{lv.number:>5}  fan   0  parent {_parent_text(lv.parent)}  "
+                     f"c{lv.comments}  {lv.ticket['title'][:90]}")
+    if ext:
+        lines.append("externally blocked: " + ", ".join(
+            f"#{lv}<-{'/'.join('#' + str(b) for b in external[lv])}" for lv in ext))
     return "\n".join(lines) + "\n"
 
 

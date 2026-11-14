@@ -97,6 +97,31 @@ class FrontierTest(FrontierCase):
         self.assertIn("#    5  fan   0  parent     -  c0  Ready to go", r.stdout)
         self.assertNotIn("READ BY HAND", r.stdout)
 
+    def test_hand_written_blockers_and_parent_come_from_the_body(self):
+        # Native dependencies are empty: the edges are the hand-written forms.
+        # #6's two blockers are closed; #7 waits on the open #9, which is not queued.
+        self.issues(
+            [{"number": 1, "title": "The spec"},
+             {"number": 3, "state": "closed"},
+             {"number": 4, "state": "closed"},
+             {"number": 6, "title": "Line form", "labels": ["ready-for-agent"],
+              "body": "Part of #1\n\nBlocked by: #3, #4"},
+             {"number": 7, "title": "Section form", "labels": ["ready-for-agent"],
+              "body": "Part of #1\n\n## Blocked by\n\n- #8\n- #9"},
+             {"number": 8, "state": "closed"},
+             {"number": 9, "state": "open"}],
+            deps={6: [], 7: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("queue 2  frontier 1  externally blocked 1", r.stdout)
+        self.assertIn("#    6  fan   0  parent #   1  c0  Line form", r.stdout)
+        self.assertNotIn("#    7  fan", r.stdout)
+        self.assertIn("externally blocked: #7<-#9", r.stdout)
+        self.assertNotIn("READ BY HAND", r.stdout)
+
     def test_a_failed_tracker_call_exits_nonzero_and_names_the_call(self):
         self.issues(
             [{"number": 5, "labels": ["ready-for-agent"]}],
