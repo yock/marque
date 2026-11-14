@@ -23,6 +23,8 @@ FIELDS = [
     "note",
 ]
 HEADER = "\t".join(FIELDS)
+IN_FLIGHT = ["running", "review", "retry", "orchestrator", "landing"]
+
 STATES = [
     ("queued", "in the queue, not started"),
     ("exploring", "the read-only explore step is running"),
@@ -105,6 +107,11 @@ def main():
     for field in FIELDS[2:]:
         p.add_argument("--" + field, metavar="V")
 
+    p = sub.add_parser("list", help="print every row, optionally only one state's")
+    p.add_argument("--state")
+
+    sub.add_parser("recover", help="print the in-flight rows crash recovery must visit")
+
     a = ap.parse_args()
     rows = read_rows(a.state_dir)
 
@@ -141,6 +148,14 @@ def main():
             if value is not None:
                 row[FIELDS.index(field)] = value
         write_rows(a.state_dir, rows)
+    elif a.cmd == "list":
+        for row in rows:
+            if a.state is None or row[1] == a.state:
+                print("\t".join(row))
+    elif a.cmd == "recover":
+        for row in rows:
+            if row[1] in IN_FLIGHT:
+                print("\t".join(row))
 
 
 if __name__ == "__main__":

@@ -134,5 +134,44 @@ class SetAndGetTest(unittest.TestCase):
                     self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
 
 
+ALL_STATE_ROWS = """\
+issue	state	branch	worktree	session	attempts	brief	verdict	landed	note
+1	queued
+2	exploring
+3	briefed
+4	running
+5	review
+6	retry
+7	orchestrator
+8	landing
+9	awaiting-approval
+10	landed
+11	needs-info
+12	blocked
+13	ready-for-human
+14	abandoned
+15	blocked-ext
+"""
+
+
+class ListAndRecoverTest(unittest.TestCase):
+    def test_recover_prints_only_the_in_flight_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "ledger.tsv").write_text(ALL_STATE_ROWS)
+
+            r = run("recover", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                r.stdout,
+                "4\trunning\t\t\t\t\t\t\t\t\n"
+                "5\treview\t\t\t\t\t\t\t\t\n"
+                "6\tretry\t\t\t\t\t\t\t\t\n"
+                "7\torchestrator\t\t\t\t\t\t\t\t\n"
+                "8\tlanding\t\t\t\t\t\t\t\t\n",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
