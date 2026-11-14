@@ -1,13 +1,31 @@
-Read-only research for the codebase at {{MASTER}} (the main checkout). Change nothing; don't write files.
+<!--
+The explore prompt. The orchestrator fills the placeholders below, removes this
+comment and gives the result to a read-only explorer.
 
-Ticket #{{ISSUE}} is about to be implemented. Get its text and comments with:
-  {{API}} repos/{{REPO}}/issues/{{ISSUE}} | python3 -c 'import json,sys;print(json.load(sys.stdin)["body"])'
-  {{API}} repos/{{REPO}}/issues/{{ISSUE}}/comments | python3 -c 'import json,sys;[print("--",c["created_at"],"\n",c["body"]) for c in json.load(sys.stdin)]'
-For each issue it is blocked by (its `Blocked by:` line or `## Blocked by` section), read the LAST comment the same way: its resolution, what landed, names in code.
+Placeholders:
+  {{ISSUE}}         the ticket number
+  {{MAIN_CHECKOUT}} the absolute path of the main checkout
+  {{READ_ISSUE}}    the tracker doc's **Read an issue** command, with the
+                    orchestrator's identity, the raw-markdown form where the
+                    doc gives one, and `<number>` left in for the explorer to
+                    substitute
+  {{SPEC}}          the parent spec's number
+  {{SPEC_DIR}}      the directory split_spec.py wrote that spec to
+  {{EXPLORE_NOTES}} the explore notes from docs/agents/marque.md, or empty
+  {{IN_FLIGHT}}     the in-flight tickets and the files they touch, or None.
+-->
 
-Its parent spec is split into files under {{SPECS}}/{{SPEC}}/ (index.txt lists them: body-NN-*.md are the spec body's sections; cNN.md are its comments in order, which amend the body, latest word wins). Find the spec sections the ticket names and any later comment that changes what this ticket builds (grep for the ticket number and its key terms).
+Read-only research for the repository at {{MAIN_CHECKOUT}} (the main checkout). Change nothing; don't write files.
+
+Ticket #{{ISSUE}} is about to be implemented. Read the ticket and its comments with:
+
+  {{READ_ISSUE}}
+
+substituting {{ISSUE}} for `<number>`. Its blockers: the tracker's native blocking relation if the doc names one, else its `Blocked by:` line or `## Blocked by` section. Read each blocker's newest comment the same way: its resolution, what landed, names in code.
+
+Its parent spec #{{SPEC}} is split into files under {{SPEC_DIR}}/ (index.txt lists them: body-NN-*.md are the spec body's sections; cNN.md are its comments in order, which amend the body, latest word wins). Find the spec sections the ticket names and any later comment that changes what this ticket builds (grep for the ticket number and its key terms).
 {{EXPLORE_NOTES}}
-Then explore the code under {{CODE}} for what the implementer will build on. Report, under 900 words, in this shape:
+Then explore the repository at {{MAIN_CHECKOUT}} for what the implementer will build on. Report, under 900 words, in this shape:
 1. SPEC: file:line ranges of the exact spec sections the ticket depends on, and any later amendment that changes it (quote the changed sentence).
 2. BLOCKERS LANDED: per blocker, the files/functions/types it added that this ticket uses.
 3. CODE TO BUILD ON: existing files, structs, functions (with file:line) the ticket extends or calls; where similar behaviour already exists to copy the pattern from.

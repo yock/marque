@@ -1,12 +1,21 @@
 <!--
-symphony's shared brief tail. The orchestrator writes the ticket part of
-briefs/<n>.md (ticket, design fixed, criteria, seams, sources, collisions,
-slices); `brief.py brief` appends everything below the line, filled in.
-Placeholders: {{ISSUE}} {{WORKTREE}} {{BRANCH}} {{MASTER}} {{PROJECT}} and
-{{PROJECT_RULES}} (the project's brief rules file, itself filled in).
--->
+The brief's shared tail. The orchestrator writes the ticket part of
+briefs/<n>.md (the ticket, the sources with later amendments applied, the
+design fixed, criteria, seams, collisions, slices), fills the placeholders
+below, appends this file, and deletes this comment.
 
----
+Placeholders:
+  {{ISSUE}}           the ticket number
+  {{PROJECT}}         the repository's name
+  {{WORKTREE}}        the absolute path of the ticket's worktree
+  {{BRANCH}}          the ticket branch
+  {{TARGET}}          the target branch's name (the branch tickets land on)
+  {{MAIN_CHECKOUT}}   the absolute path of the main checkout
+  {{DOMAIN_DOCS}}     the project's domain docs, as named by its
+                      docs/agents/domain.md or AGENTS.md (e.g. GLOSSARY.md,
+                      docs/adr/)
+  {{BRIEF_EXTENSION}} the project's brief extension, verbatim, or None.
+-->
 
 # How to do this work
 
@@ -16,10 +25,19 @@ The ticket context above is complete. You don't need the issue tracker, and you 
 ## Where you work
 
 - **Your worktree:** `{{WORKTREE}}`, on branch `{{BRANCH}}`. Every file you read or write and every command you run uses this path. Pass it as the working directory or use absolute paths.
-- **Never touch** `{{MASTER}}` itself (that is the main checkout), any other worktree, or any other branch.
-- **Never** push, merge, rebase or switch branches; never run the tracker's CLI; never edit the domain docs (`CONTEXT.md`, `docs/adr/`). If you think either needs a change, say so in your report.
+- **Never touch** the main checkout (`{{MAIN_CHECKOUT}}`), the target branch `{{TARGET}}` (the branch tickets land on), any other worktree or branch. Work only on `{{BRANCH}}`: never push, merge, rebase or switch branches.
+- **Never run the tracker's CLI.** The orchestrator owns the tracker.
+- **Never edit {{DOMAIN_DOCS}}**, the project's domain docs. If you think one needs a change, say so in your report.
 
-{{PROJECT_RULES}}
+## Build and test
+
+Read the build, test and repo rules in the project's `AGENTS.md` (or `CLAUDE.md`) and the docs it points to before you start, and run the full suite the way they say.
+
+## Brief extension
+
+{{BRIEF_EXTENSION}}
+
+The brief extension adds to the rules above and never loosens them.
 
 ## Workflow
 
