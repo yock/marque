@@ -1,6 +1,6 @@
-# Symphony
+# Marque
 
-Symphony delegates implementation tickets to implementer agents and lands their work, under the command of a developer who holds its session. It is the stage after wayfinding: a map's decisions define a spec, `to-tickets` splits the spec into implementation tickets, and symphony works down every ready ticket in the queue, whichever spec it came from.
+Marque delegates implementation tickets to implementer agents and lands their work, under the command of a developer who holds its session. It is the stage after wayfinding: a map's decisions define a spec, `to-tickets` splits the spec into implementation tickets, and Marque works down every ready ticket in the queue, whichever spec it came from.
 
 ## Language
 
@@ -13,7 +13,7 @@ A ticket specified fully enough to be built in isolation in one agent session, d
 _Avoid_: wayfinder ticket, task
 
 **Decision ticket**:
-A wayfinder map's ticket, whose resolution is a decision rather than built work. Symphony does not consume these.
+A wayfinder map's ticket, whose resolution is a decision rather than built work. Marque does not consume these.
 _Avoid_: implementation ticket
 
 **Queue**:
