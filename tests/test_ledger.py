@@ -81,6 +81,45 @@ class SetAndGetTest(unittest.TestCase):
             self.assertEqual(r.stdout, "")
             self.assertIn("no row for #99", r.stderr)
 
+    def test_set_on_an_existing_row_changes_only_the_fields_it_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            run("set", "5", "running", "--branch", "orch-5", state_dir=state_dir)
+
+            run("set", "5", "review", "--verdict", "pass", state_dir=state_dir)
+
+            self.assertEqual(run("get", "5", "branch", state_dir=state_dir).stdout, "orch-5\n")
+            self.assertEqual(run("get", "5", "verdict", state_dir=state_dir).stdout, "pass\n")
+
+    def test_set_refuses_an_unknown_state_and_names_the_allowed_ones(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            run("set", "5", "running", "--branch", "orch-5", state_dir=state_dir)
+            before = (state_dir / "ledger.tsv").read_bytes()
+
+            r = run("set", "5", "opus", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("opus", r.stderr)
+            for state in (
+                "queued",
+                "exploring",
+                "briefed",
+                "running",
+                "review",
+                "retry",
+                "orchestrator",
+                "landing",
+                "awaiting-approval",
+                "landed",
+                "needs-info",
+                "blocked",
+                "ready-for-human",
+                "abandoned",
+            ):
+                self.assertIn(state, r.stderr)
+            self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()

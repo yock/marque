@@ -118,6 +118,10 @@ def main():
         else:
             print("\t".join(row))
     elif a.cmd == "set":
+        if a.state not in [state for state, _ in STATES]:
+            allowed = ", ".join(state for state, _ in STATES)
+            print(f"ledger.py: unknown state '{a.state}'; allowed: {allowed}", file=sys.stderr)
+            raise SystemExit(2)
         row = row_for(rows, a.n)
         if row is None:
             row = [""] * len(FIELDS)
