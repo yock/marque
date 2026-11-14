@@ -1,0 +1,8 @@
+{
+  "name": "marque",
+  "version": "0.1.0",
+  "description": "Orchestrate implementer agents through a ticket queue: pick, brief, dispatch, review, land and close.",
+  "author": { "name": "Michael Yockey" },
+  "license": "MIT",
+  "skills": ["./skills/marque"]
+}
