@@ -182,3 +182,44 @@ class SeveralSpecsTest(SplitSpecCase):
         self.assertEqual(r.stdout, (
             f"#18: 4 body sections, 2 comments -> {first}\n"
             f"#19: 2 body sections, 1 comments -> {second}\n"))
+
+
+class RawApiTest(SplitSpecCase):
+    def test_reads_are_raw_sequential_and_carry_the_login(self):
+        self.spec(18, "Spec: Thing", BODY, ["First comment.\n", None])
+
+        r = self.run_split("18", login="L")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.calls()
+        self.assertEqual([c for c in lines if c[0] == "OVERLAP"], [])
+        self.assertEqual([c[1] for c in lines if c[0] == "start"], [
+            f"repos/{REPO_NAME}/issues/18",
+            f"repos/{REPO_NAME}/issues/18/comments?page=1&limit=50",
+        ])
+        for c in lines:
+            self.assertIn("login=L", c)
+
+
+class LoudFailureTest(SplitSpecCase):
+    def test_a_failed_comments_call_leaves_the_previous_split_untouched(self):
+        self.spec(18, "Spec: Thing", BODY, ["First comment.\n", None])
+        self.assertEqual(self.run_split("18").returncode, 0)
+        out = self.state / "specs" / "18"
+        before = {p.name: p.read_text() for p in out.iterdir()}
+
+        r = self.run_split("18", fail="comments")
+
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tea api", r.stderr)
+        self.assertIn(f"repos/{REPO_NAME}/issues/18/comments", r.stderr)
+        self.assertEqual({p.name: p.read_text() for p in out.iterdir()}, before)
+
+
+class MissingSpecTest(SplitSpecCase):
+    def test_a_spec_the_tracker_does_not_have_fails_loudly(self):
+        r = self.run_split("99")
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stderr, "split_spec.py: #99 not found\n")
+        self.assertFalse((self.state / "specs" / "99").exists())
