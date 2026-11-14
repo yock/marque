@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from symphony_lib import Project  # noqa: E402
 
-TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+TEMPLATES = Path(__file__).resolve().parent.parent / "assets"
 LEFT = re.compile(r"\{\{[A-Z_]+\}\}")
 
 
