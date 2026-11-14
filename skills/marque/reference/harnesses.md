@@ -2,7 +2,7 @@
 
 The skill speaks in neutral verbs. This file maps each one to **OpenCode**, **Claude Code** and **Codex**, naming the tool or setting that does the job, and then says what degrades on each. Facts are as of 2026-11 (#4's research); harnesses rename and move tools, so check a name against your harness's docs when it stops working.
 
-Worktrees are not a harness feature here: Marque's own `git worktree add` creates them on every harness.
+Worktrees are not a harness feature here: Marque's own `git worktree add` creates them on every harness. What differs is whether a background implementer may write in one — see [Permission setup](#permission-setup).
 
 ## The map
 
@@ -17,3 +17,19 @@ Worktrees are not a harness feature here: Marque's own `git worktree add` create
 | **worktree write access** | `external_directory` is allowed by default; the subagent's permission config decides the rest. | `additionalDirectories`, or a permissive mode. | Every worktree in `sandbox_workspace_write.writable_roots`, or full access. |
 
 **Explore** is this dispatch made read-only: OpenCode's `explore` agent, or any agent with edit and shell denied; Claude Code's built-in Explore agent; on Codex an agent, since a custom agent inherits the parent's sandbox and read-only holds by instruction only.
+
+## What degrades
+
+**Codex.** No wake-up: the completion notice never starts a turn, so the orchestrator blocks in `wait_agent` inside one long turn. Dispatch, Integrate and Pacing degrade with it — the orchestrator cannot end its turn or prepare the next brief while implementers work, and a background command is polled with `write_stdin` or run in the foreground. A finished agent holds its concurrency slot until `close_agent`, so close each one as it lands. Explore degrades too: a subagent inherits the parent's sandbox, so read-only holds only by instruction.
+
+**Claude Code.** Per call, `model` takes only the aliases `sonnet`, `opus`, `haiku` and `fable`; pinning a full model ID or a variant means an agent definition in frontmatter. A background implementer's permissions must be settled up front (below), or its prompts surface in the main session, where nobody is there to answer. The agent id is documented to arrive on completion, so the ledger may record the session late. Dispatch degrades; the rest holds.
+
+**OpenCode.** None found. Any provider's model and variant, the wake-up, resume, a background command and a phone push all work per call.
+
+## Permission setup
+
+The commission's last step points here. Before the first dispatch, confirm the harness lets a background implementer write in `<repo>/.marque/worktrees/` and run the build and the tests **without prompts**.
+
+- **OpenCode:** external directories are allowed by default; the subagent's own permission config decides what it may run, so allow the implementer's shell and edit tools.
+- **Claude Code:** name the worktree root in `additionalDirectories`, or run a permissive mode. Without either, each background write raises a prompt in the main session.
+- **Codex:** list the worktree root in `sandbox_workspace_write.writable_roots`; otherwise `workspace-write` cannot write the worktree, and only full access would.

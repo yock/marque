@@ -292,3 +292,9 @@ class HarnessReferenceTest(unittest.TestCase):
         for harness in HARNESSES:
             with self.subTest(harness=harness):
                 self.assertIn(harness, text)
+
+    def test_the_degradations_and_the_permission_settings_are_named(self):
+        text = self.harnesses_md()
+        for marker in ("wait_agent", "alias", "additionalDirectories", "writable_roots"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
