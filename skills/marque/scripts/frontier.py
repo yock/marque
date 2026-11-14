@@ -82,7 +82,7 @@ def parse_args(argv):
 
 def declares_none(text):
     """True when a declaration's text is `None…`, list bullets aside."""
-    return BULLETS.sub("", text).lower().startswith("none")
+    return BULLETS.sub("", text).strip().lower().startswith("none")
 
 
 def scan(text):
@@ -203,12 +203,15 @@ def run(a):
         level.native = tracker.dependencies(level.number) or []
         read_body(level)
         merge_native(level, a.repo)
+        native_parent = tracker.native_parent(level.number)
+        if native_parent is not None:
+            level.parent = native_parent["number"]
         if level.comments:
             level.comment_bodies = tracker.comments(level.number)
         levels[level.number] = level
 
     resolution = Resolution(tracker, open_set, by_number, a.repo)
-    find_open_blockers(a, levels, resolution)
+    find_open_blockers(levels, resolution)
     add_reasons(a, levels, resolution)
     _rank(levels)
 
@@ -231,7 +234,7 @@ def run(a):
     return _text(a, queue, waiting, hand, front, external)
 
 
-def find_open_blockers(a, levels, resolution):
+def find_open_blockers(levels, resolution):
     """Settle every blocker's state, asking the tracker once about any it can't tell."""
     for lv in levels.values():
         for number in sorted(lv.blockers):

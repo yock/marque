@@ -7,7 +7,6 @@ STUB_TEA_FIXTURE   a JSON object mapping a request key to its response. The key 
                    `{"message": "not found"}` with exit 0, as real tea does.
 STUB_TEA_LOG       a file to append `start PATH[ login=L]` / `end PATH[ login=L]`.
 STUB_TEA_FAIL      a substring of PATH; matching calls print to stderr and exit 1.
-STUB_TEA_SLEEP     seconds to hold the call open (default 0.05), for overlap checks.
 
 While a call is open the stub holds `<log>.lock`; if it cannot create it, the log
 gets an `OVERLAP` line, which is how a test detects calls made in parallel.
@@ -65,7 +64,7 @@ def main(argv):
         if fail and fail in path:
             print(f"stub tea: forced failure on {path}", file=sys.stderr)
             return 1
-        time.sleep(float(os.environ.get("STUB_TEA_SLEEP", "0.05")))
+        time.sleep(0.05)
         print(json.dumps(response(path)))
         return 0
     finally:

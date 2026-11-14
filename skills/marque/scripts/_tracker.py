@@ -127,5 +127,4 @@ def backend(name, repo, login=None):
     """The tracker for `name`. Only gitea is built so far."""
     if name == "gitea":
         return Gitea(repo, login)
-    raise TrackerError(["frontier.py", "--backend", name],
-                       f"{name} is not built yet; only gitea is")
+    raise TrackerError(["tea", "api"], f"{name} is not built yet; only gitea is")

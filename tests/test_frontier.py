@@ -354,6 +354,58 @@ class FrontierTest(FrontierCase):
         self.assertNotIn("READ BY HAND", r.stdout)
         self.assertIn("#    9  fan   0  parent     -  c2  Answered", r.stdout)
 
+    def test_tracker_calls_are_made_one_at_a_time_starting_with_the_two_lists(self):
+        # #7 waits on the closed #5 and has one comment, so it reads comments too.
+        self.issues(
+            [{"number": 5, "state": "closed"},
+             {"number": 7, "labels": ["ready-for-agent"], "comments": 1}],
+            deps={7: [5]},
+            comments={7: ["## Notes\n\nall good"]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        log = self.log.read_text().splitlines()
+        self.assertNotIn("OVERLAP", log)
+        kinds = [line.split()[0] for line in log]
+        self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
+        paths = [line.split()[1] for line in log if line.startswith("start ")]
+        self.assertEqual(paths[:2], [
+            "repos/o/r/issues?state=open&page=1&limit=50&type=issues&labels=ready-for-agent",
+            "repos/o/r/issues?state=open&page=1&limit=50&type=issues",
+        ])
+
+    def test_limit_caps_the_frontier_lines(self):
+        self.issues(
+            [{"number": n, "title": f"Ticket {n}", "labels": ["ready-for-agent"]}
+             for n in (5, 6, 7)],
+            deps={5: [], 6: [], 7: []},
+        )
+
+        r = self.run_frontier("--limit", "1")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("queue 3  frontier 3  externally blocked 0", r.stdout)
+        self.assertEqual(r.stdout.splitlines()[1:], ["#    5  fan   0  parent     -  c0  Ticket 5"])
+
+    def test_a_native_blocker_from_another_repo_is_unparseable(self):
+        # The native endpoint can name an issue in another repo; this repo cannot
+        # resolve it, so it is reported and counted as open.
+        self.issues(
+            [{"number": 9, "title": "Elsewhere", "labels": ["ready-for-agent"]}],
+            deps={9: []},
+        )
+        self.fixture[f"repos/{REPO_NAME}/issues/9/dependencies"] = [
+            {"number": 2, "state": "open", "repository": {"full_name": "other/repo"}}]
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: unparseable reference other/repo#2, treated as open",
+                      r.stdout)
+        self.assertIn("queue 1  frontier 0  externally blocked 0", r.stdout)
+
     def test_a_failed_tracker_call_exits_nonzero_and_names_the_call(self):
         self.issues(
             [{"number": 5, "labels": ["ready-for-agent"]}],
