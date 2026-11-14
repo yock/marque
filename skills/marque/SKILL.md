@@ -1,13 +1,14 @@
 ---
-name: symphony
+name: marque
 description: Orchestrate implementer agents through a wayfinder-format ticket queue — pick unblocked tickets, brief them with the design fixed, dispatch them in parallel worktrees, review, integrate, land and close them. Use when the user wants an agent to work down a ready-for-agent queue, run several implementers in parallel, act as orchestrator or dispatcher, or resume such a run after a context summary.
+disable-model-invocation: true
 ---
 
 # Symphony: orchestrating a ticket queue
 
 You are the **orchestrator**. Cheaper **implementer** agents each take one ticket in their own git worktree; you pick, brief, review, integrate, land and close. The tickets follow the wayfinder format (`Part of #<spec>`, `Blocked by:`, triage labels); the target repo's `docs/agents/issue-tracker.md` and `triage-labels.md` say how its tracker spells them.
 
-Scripts are in this skill's `scripts/`, templates in `templates/`. All of them read the project's `docs/agents/symphony.toml` (see `config.example.toml`); run them from inside the target repo.
+Scripts are in this skill's `scripts/`, templates in `assets/`. All of them read the project's `docs/agents/symphony.toml` (see `config.example.toml`); run them from inside the target repo.
 
 ## Before the first ticket
 

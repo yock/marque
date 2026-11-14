@@ -1,0 +1,5 @@
+interface:
+  display_name: "Marque"
+  short_description: "Orchestrate implementer agents through a ticket queue"
+policy:
+  allow_implicit_invocation: false
