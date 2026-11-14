@@ -1,134 +1,83 @@
 #!/usr/bin/env python3
-"""frontier.py [--config PATH] [--json]: the unblocked, unclaimed tickets in the ready queue, ranked.
+"""frontier.py --backend gitea --repo OWNER/NAME [--login L] [--json]: the ready queue, ranked.
 
-The ticket format is the wayfinder skill's, with the tracker specifics in the target
-repo's docs/agents/issue-tracker.md and triage-labels.md; that pair is this script's
-contract. It reads:
-  - `Part of #<spec>`              the parent spec (ranking only);
-  - `Blocked by: #a, #b`           the top line, and
-  - a `## Blocked by` section      listing `#n` items. Both forms are read and unioned.
-  - labels: the ready label (the queue), the blocking label (waiting on the user);
-  - assignees: a claimed ticket is not on the frontier.
+The tracker's facts arrive as flags; this script reads no config file and no
+environment. The queue is the open issues carrying --label. A ticket is on the
+frontier when it is unassigned, does not carry --waiting-label, and every one of
+its blockers is closed.
 
-A ticket is on the frontier when it is ready, unclaimed, not labelled blocking, and
-every blocker it names is closed. Rank: most queued tickets it unblocks (transitively),
-then spec number, then issue number.
+Blockers and the parent are read native first, then from the body's `Blocked by:`
+line or `## Blocked by` section ("None…" means none) and its `## Parent` section
+or `Part of #n`. Native and body edges that disagree are unioned and the ticket is
+listed under READ BY HAND, as are references it cannot parse (URLs, cross-repo),
+references to missing issues, blockers that are maps or specs rather than tickets,
+and tickets with questions but no waiting label.
 
-Anything the script can't read with confidence is listed under READ BY HAND and never
-silently decided: a top line and a section that disagree, no `Part of` line. A ticket
-with no blocker declaration at all is listed once as a note (it may truly have none).
-
-With a ledger (state.dir/ledger.tsv, optional), a frontier ticket whose ledger row
-carries state.asked_marker is flagged ANSWERED: the user has returned it; read its
-newest comments before briefing. Writes state.dir/logs/queue.json.
+Rank: how many queued tickets it unblocks (transitively), then tickets with a
+parent before those without, then parent number, then issue number.
 """
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from symphony_lib import Project  # noqa: E402
-
-TOP = re.compile(r"(?mi)^\s*Blocked by:(.*)$")
-SECTION = re.compile(r"(?ms)^##+\s*Blocked by\s*\n(.*?)(?=^##+ |\Z)")
-PART = re.compile(r"(?mi)^\s*Part of #(\d+)")
-NUM = re.compile(r"#(\d+)")
+from _tracker import TrackerError, backend  # noqa: E402
 
 
-def parse(it):
-    b = it["body"]
-    top = TOP.search(b)
-    sec = SECTION.search(b)
-    top_set = set(map(int, NUM.findall(top.group(1)))) if top else None
-    sec_set = set(map(int, NUM.findall(sec.group(1)))) if sec else None
-    it["blockers"] = sorted((top_set or set()) | (sec_set or set()))
-    it["hand"] = []
-    it["notes"] = []
-    if top_set is not None and sec_set is not None and top_set != sec_set:
-        it["hand"].append(f"Blocked by line {sorted(top_set)} and section {sorted(sec_set)} disagree "
-                          "(both counted)")
-    if top_set is None and sec_set is None:
-        it["notes"].append("no blocker declaration")
-    elif top_set is None:
-        it["hand"].append(f"no `Blocked by:` line; section lists {sorted(sec_set)}")
-    p = PART.search(b)
-    it["spec"] = int(p.group(1)) if p else 0
-    if not p:
-        it["hand"].append("no `Part of #` line")
-
-
-def main():
+def parse_args(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--config")
-    ap.add_argument("--json", action="store_true", help="print the ranked frontier as JSON")
+    ap.add_argument("--backend", required=True, choices=["gitea"])
+    ap.add_argument("--repo", required=True, help="OWNER/NAME")
+    ap.add_argument("--login", help="the tracker CLI login to use")
+    ap.add_argument("--label", default="ready-for-agent", help="the queue's label")
+    ap.add_argument("--waiting-label", default="needs-info",
+                    help="the label that means the user has been asked something")
+    ap.add_argument("--json", action="store_true", help="print the frontier as JSON")
     ap.add_argument("--limit", type=int, default=30, help="frontier lines to print (default 30)")
-    a = ap.parse_args()
-    pr = Project(a.config)
+    return ap.parse_args(argv)
 
-    queue = pr.open_issues(pr.ready)
-    open_set = {i["number"] for i in pr.open_issues()}
-    by_num = {i["number"]: i for i in queue}
-    for it in queue:
-        parse(it)
-        it["open_blockers"] = [x for x in it["blockers"] if x in open_set]
-        it["external"] = [x for x in it["open_blockers"] if x not in by_num]
 
-    dependents = {k: set() for k in by_num}
-    for it in queue:
-        for x in it["open_blockers"]:
-            if x in dependents:
-                dependents[x].add(it["number"])
+def main(argv=None):
+    a = parse_args(argv)
+    try:
+        text = run(a)
+    except TrackerError as e:
+        print(f"frontier.py: {' '.join(e.cmd)} failed: {e.reason}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
+    return 0
 
-    def reach(k, seen):
-        for d in dependents.get(k, ()):
-            if d not in seen:
-                seen.add(d)
-                reach(d, seen)
-        return seen
 
-    for it in queue:
-        it["fanout"] = len(reach(it["number"], set()))
+def run(a):
+    tracker = backend(a.backend, a.repo, a.login)
+    queue = tracker.open_issues(a.label)
+    open_set = {i["number"] for i in tracker.open_issues()}
 
-    asked = set()
-    if pr.ledger.is_file():
-        for line in pr.ledger.read_text().splitlines():
-            f = line.split("\t")
-            if f and f[0].isdigit() and any(pr.asked_marker in x for x in f[1:]):
-                asked.add(int(f[0]))
+    blockers = {}
+    for ticket in sorted(queue, key=lambda i: i["number"]):
+        blockers[ticket["number"]] = tracker.dependencies(ticket["number"])
 
-    waiting = [i for i in queue if pr.blocking in i["labels"]]
-    front = [i for i in queue
-             if not i["open_blockers"] and not i["assignees"] and pr.blocking not in i["labels"]]
-    front.sort(key=lambda i: (-i["fanout"], i["spec"], i["number"]))
-    ext = [i for i in queue if i["external"]]
+    waiting = [t for t in queue if a.waiting_label in t["labels"]]
+    front = [t for t in queue
+             if not t["assignees"]
+             and a.waiting_label not in t["labels"]
+             and all(r["state"] == "closed" for r in blockers[t["number"]])]
+    front.sort(key=lambda t: t["number"])
 
-    (pr.state / "logs").mkdir(parents=True, exist_ok=True)
-    (pr.state / "logs/queue.json").write_text(json.dumps(queue, indent=1))
+    return _text(a, queue, waiting, front)
 
-    if a.json:
-        print(json.dumps([{k: i[k] for k in ("number", "title", "fanout", "spec", "comments", "hand")}
-                          for i in front], indent=1))
-        return
 
-    for i in front:
-        if i["number"] in asked:
-            print(f"ANSWERED #{i['number']}: back from the user; read its newest comments before briefing")
-    for i in waiting:
-        print(f"WAITING ON THE USER #{i['number']} ({pr.blocking})")
-    hand = [i for i in queue if i["hand"]]
-    for i in hand:
-        print(f"READ BY HAND #{i['number']}: " + "; ".join(i["hand"]))
-    print(f"queue {len(queue)}  frontier {len(front)}  externally blocked {len(ext)}")
-    for i in front[:a.limit]:
-        note = f"  [{'; '.join(i['notes'])}]" if i["notes"] else ""
-        print(f"#{i['number']:>5}  fan {i['fanout']:>3}  spec #{i['spec']:>4}  c{i['comments']}  "
-              f"{i['title'][:90]}{note}")
-    if ext:
-        print("externally blocked:", ", ".join(
-            f"#{i['number']}<-{'/'.join('#' + str(x) for x in i['external'])}" for i in ext))
+def _text(a, queue, waiting, front):
+    lines = []
+    for ticket in sorted(waiting, key=lambda t: t["number"]):
+        lines.append(f"WAITING #{ticket['number']} ({a.waiting_label})")
+    lines.append(f"queue {len(queue)}  frontier {len(front)}  externally blocked 0")
+    for ticket in front[:a.limit]:
+        lines.append(f"#{ticket['number']:>5}  fan   0  parent {'-':>5}  c{ticket['comments']}  "
+                     f"{ticket['title'][:90]}")
+    return "\n".join(lines) + "\n"
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
