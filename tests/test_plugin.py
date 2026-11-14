@@ -36,3 +36,21 @@ class ManifestsTest(unittest.TestCase):
         self.assertEqual(len(data["plugins"]), 1)
         self.assertEqual(data["plugins"][0]["name"], "marque")
         self.assertEqual(data["plugins"][0]["source"], "./")
+
+
+class LicenseTest(unittest.TestCase):
+    def test_license_is_mit_for_michael_yockey(self):
+        text = (REPO / "LICENSE").read_text()
+        self.assertEqual(text.splitlines()[0], "MIT License")
+        self.assertIn("Copyright (c) 2026 Michael Yockey", text)
+
+
+class NoSymlinksTest(unittest.TestCase):
+    def test_the_plugin_tree_has_no_symlinks(self):
+        # Codex drops symlinks when it copies the plugin (#11).
+        links = [
+            str(p)
+            for p in REPO.rglob("*")
+            if ".git" not in p.parts and p.is_symlink()
+        ]
+        self.assertEqual(links, [])
