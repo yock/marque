@@ -47,7 +47,7 @@ A question goes on the ticket, never only in chat: numbered, each with a recomme
 
 ## Notify
 
-On the core events — target branch red, three failures in a row, a paid-compute cap refusing, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Apply the **notify** extensions. → `reference/operations.md`
+On the core events — target branch red, three failures in a row, a paid-compute cap refusing, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Send a short summary every ten landings. Apply the **notify** extensions. → `reference/operations.md`
 
 ## Rules that held
 
