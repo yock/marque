@@ -7,7 +7,9 @@ verdict, landed, note. It is kept by this script so it can't drift from its
 schema.
 """
 import argparse
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 FIELDS = [
@@ -47,9 +49,9 @@ states, in order:
 """ + "".join("  %-20s%s\n" % (state, meaning) for state, meaning in STATES) + """\
 
 Crash recovery visits the in-flight states -- where a worktree, a session or a
-half-done landing can be left behind. They are running, review, retry, orchestrator, landing.
-awaiting-approval is not in flight: the PR waits on the tracker, and the normal
-loop checks it every pass.
+half-done landing can be left behind. They are
+running, review, retry, orchestrator, landing. awaiting-approval is not in
+flight: the PR waits on the tracker, and the normal loop checks it every pass.
 """
 
 
@@ -78,7 +80,24 @@ def write_rows(state_dir, rows):
     path = ledger_path(state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = "\n".join([HEADER] + ["\t".join(row[: len(FIELDS)]) for row in rows]) + "\n"
-    path.write_text(text)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".ledger.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        # Test hook, for the interruption test only: die between the write and
+        # the rename, leaving the old ledger and the temp file as a kill would.
+        if os.environ.get("MARQUE_LEDGER_CRASH_BEFORE_RENAME"):
+            os._exit(70)
+        os.replace(tmp, str(path))
+    except OSError as e:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        print(f"ledger.py: cannot write {path}: {e}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 def row_for(rows, n):

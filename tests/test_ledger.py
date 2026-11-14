@@ -215,6 +215,26 @@ class ListAndRecoverTest(unittest.TestCase):
                 "2\tblocked-ext\torch-2\twt2\ts2\t2\tb2\t\tabc124\tn2\n",
             )
 
+    def test_an_interrupted_set_leaves_the_old_ledger_intact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            run("set", "5", "running", "--branch", "orch-5", state_dir=state_dir)
+            before = (state_dir / "ledger.tsv").read_bytes()
+
+            r = run(
+                "set",
+                "5",
+                "landed",
+                state_dir=state_dir,
+                env={"MARQUE_LEDGER_CRASH_BEFORE_RENAME": "1"},
+            )
+
+            # os._exit(70): the process dies between the write and the rename.
+            self.assertEqual(r.returncode, 70)
+            self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
+            # The temp file is left behind, as a real kill would leave it.
+            self.assertNotEqual(list(state_dir.glob(".ledger.*.tmp")), [])
+
 
 if __name__ == "__main__":
     unittest.main()
