@@ -172,6 +172,49 @@ class ListAndRecoverTest(unittest.TestCase):
                 "8\tlanding\t\t\t\t\t\t\t\t\n",
             )
 
+    def test_list_prints_every_row_in_file_order_or_one_state_s(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "ledger.tsv").write_text(
+                "issue\tstate\tbranch\tworktree\tsession\tattempts\tbrief\tverdict\tlanded\tnote\n"
+                "1\tlanded\torch-1\twt1\ts1\t1\tb1\tpass\tabc123\tn1\n"
+                "2\tblocked-ext\torch-2\twt2\ts2\t2\tb2\t\tabc124\tn2\n"
+                "3\trunning\torch-3\twt3\ts3\t3\tb3\t\tabc125\tn3\n"
+            )
+
+            r = run("list", "--state", "landed", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "1\tlanded\torch-1\twt1\ts1\t1\tb1\tpass\tabc123\tn1\n")
+
+            r = run("list", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                r.stdout,
+                "1\tlanded\torch-1\twt1\ts1\t1\tb1\tpass\tabc123\tn1\n"
+                "2\tblocked-ext\torch-2\twt2\ts2\t2\tb2\t\tabc124\tn2\n"
+                "3\trunning\torch-3\twt3\ts3\t3\tb3\t\tabc125\tn3\n",
+            )
+
+    def test_set_leaves_other_rows_unchanged_even_in_an_unknown_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "ledger.tsv").write_text(
+                "issue\tstate\tbranch\tworktree\tsession\tattempts\tbrief\tverdict\tlanded\tnote\n"
+                "1\tlanded\torch-1\twt1\ts1\t1\tb1\tpass\tabc123\tn1\n"
+                "2\tblocked-ext\torch-2\twt2\ts2\t2\tb2\t\tabc124\tn2\n"
+                "3\trunning\torch-3\twt3\ts3\t3\tb3\t\tabc125\tn3\n"
+            )
+
+            r = run("set", "3", "review", "--note", "changed", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                run("get", "2", state_dir=state_dir).stdout,
+                "2\tblocked-ext\torch-2\twt2\ts2\t2\tb2\t\tabc124\tn2\n",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
