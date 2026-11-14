@@ -139,3 +139,46 @@ class LayoutTest(SplitSpecCase):
         self.assertEqual((out / "index.txt").read_text(), INDEX)
         self.assertEqual(
             r.stdout, f"#18: 4 body sections, 2 comments -> {out}\n")
+
+
+class RerunTest(SplitSpecCase):
+    def test_a_stale_file_from_the_previous_split_is_gone(self):
+        self.spec(18, "Spec: Thing", BODY, ["First comment.\n", None])
+        out = self.state / "specs" / "18"
+        out.mkdir(parents=True)
+        (out / "c09.md").write_text("stale\n")
+        (out / "body-09-gone.md").write_text("stale\n")
+
+        r = self.run_split("18")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse((out / "c09.md").exists())
+        self.assertFalse((out / "body-09-gone.md").exists())
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         sorted(list(FILES) + ["index.txt"]))
+
+
+class SeveralSpecsTest(SplitSpecCase):
+    def test_each_spec_named_on_the_command_line_is_split(self):
+        # #19 is 2 sections (intro and Part) and 1 comment: worked out by hand.
+        self.spec(18, "Spec: Thing", BODY, ["First comment.\n", None])
+        self.spec(19, "Second spec", "Second body.\n## Part\n\nText.\n", ["One.\n"])
+
+        r = self.run_split("18", "19")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        first = self.state / "specs" / "18"
+        second = self.state / "specs" / "19"
+        self.assertEqual(sorted(p.name for p in first.iterdir()),
+                         sorted(list(FILES) + ["index.txt"]))
+        self.assertEqual(sorted(p.name for p in second.iterdir()), [
+            "body-00-second-body.md", "body-01-part.md", "c01.md", "index.txt"])
+        self.assertEqual(
+            second.joinpath("index.txt").read_text(),
+            "#19 Second spec\n"
+            "body-00-second-body.md\t13\tSecond body.\n"
+            "body-01-part.md\t15\t## Part\n"
+            "c01.md\t5\tOne.\n")
+        self.assertEqual(r.stdout, (
+            f"#18: 4 body sections, 2 comments -> {first}\n"
+            f"#19: 2 body sections, 1 comments -> {second}\n"))
