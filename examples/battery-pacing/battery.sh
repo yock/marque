@@ -4,13 +4,14 @@
 #   run   : capacity < LOW (EMERGENCY under EMERG), or a drop of more than DROP points over 15 min on mains
 #   wait  : capacity >= RESUME (dispatch may resume), or EMERGENCY
 #   emerg : capacity >= LOW (paused processes may resume)
-# Thresholds from the environment: SYMPHONY_BATTERY_LOW (40), _RESUME (60), _EMERG (20), _DROP (5).
-# The battery and the mains adapter are found under /sys/class/power_supply (no root).
+# Thresholds from the environment: BATTERY_PACING_LOW (40), _RESUME (60), _EMERG (20), _DROP (5).
+# The battery and the mains adapter are found under $BATTERY_PACING_POWER_SUPPLY (default
+# /sys/class/power_supply, no root).
 # Run `watch` in the background: its exit is what wakes the orchestrator.
 set -u
-LOW=${SYMPHONY_BATTERY_LOW:-40}; RESUME=${SYMPHONY_BATTERY_RESUME:-60}
-EMERG=${SYMPHONY_BATTERY_EMERG:-20}; DROP=${SYMPHONY_BATTERY_DROP:-5}
-P=/sys/class/power_supply
+LOW=${BATTERY_PACING_LOW:-40}; RESUME=${BATTERY_PACING_RESUME:-60}
+EMERG=${BATTERY_PACING_EMERG:-20}; DROP=${BATTERY_PACING_DROP:-5}
+P=${BATTERY_PACING_POWER_SUPPLY:-/sys/class/power_supply}
 B=; A=
 for d in "$P"/*; do
   [ -r "$d/type" ] || continue
@@ -24,7 +25,7 @@ adapter() { if [ -n "$A" ]; then cat "$A/online"; else echo 0; fi; }
 
 case ${1:-now} in
   now) echo "$(cat "$B/capacity") $(cat "$B/status") adapter=$(adapter)"; exit 0 ;;
-  watch) MODE=${2:-run}; LOG=${3:-${SYMPHONY_BATTERY_LOG:-./battery.log}} ;;
+  watch) MODE=${2:-run}; LOG=${3:-${BATTERY_PACING_LOG:-./battery.log}} ;;
   *) echo "usage: battery.sh now | watch run|wait|emerg [LOG]" >&2; exit 2 ;;
 esac
 

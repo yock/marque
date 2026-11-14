@@ -106,3 +106,164 @@ class LoopCallsTest(unittest.TestCase):
             "push a notification",
         ):
             self.assertIn(verb, text)
+
+
+# The commission's gap-check list (#31): the operations Marque reaches for, in
+# the order the reference snippets must cover them.
+OPERATIONS = (
+    "List by label",
+    "Read an issue",
+    "Parent",
+    "Blocking",
+    "Count open blockers",
+    "Assign / unassign",
+    "Comment",
+    "Apply / remove labels",
+    "Close",
+    "Open a PR",
+    "Merge a PR",
+    "Read PR approval",
+    "Orchestrator identity",
+)
+TRACKERS = ("github", "gitlab", "gitea", "local")
+
+
+class TrackerSnippetTest(unittest.TestCase):
+    def test_each_snippet_covers_every_operation(self):
+        for tracker in TRACKERS:
+            text = (REFERENCE_DIR / "trackers" / f"{tracker}.md").read_text()
+            for operation in OPERATIONS:
+                with self.subTest(tracker=tracker, operation=operation):
+                    self.assertIn(f"\n- **{operation}**", text)
+
+
+class CommissionReferenceTest(unittest.TestCase):
+    def test_the_commission_stops_when_the_setup_files_are_missing(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("docs/agents/issue-tracker.md", text)
+        self.assertIn("## Agent skills", text)
+        self.assertIn("`/setup-matt-pocock-skills`", text)
+
+    def test_the_commission_lists_the_defaults_and_their_one_override(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in (
+            "~/.local/share/marque/<repo-name>",
+            ".marque/worktrees",
+            "docs/agents/marque.md",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+        self.assertIn("stall hour", text.lower())
+
+    def test_the_gap_check_lists_every_operation(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for operation in OPERATIONS:
+            with self.subTest(operation=operation):
+                self.assertIn(operation, text)
+
+    def test_the_gap_check_writes_only_with_approval_and_reports_a_disagreement(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("only with the developer's approval", text)
+        self.assertIn("disagree", text)
+
+    def test_the_claims_differ_between_the_two_identity_cases(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("claimed by a human: unassign to queue it", text)
+        self.assertIn("yours, or orphaned?", text)
+
+    def test_the_approval_term_is_impossible_on_the_approving_account(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("impossible", text)
+        self.assertIn("approve its own PR", text)
+
+    def test_the_commission_names_marques_post_marker_and_approval_state(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in ("Posted by Marque", "awaiting-approval"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_commission_writes_every_term_to_the_plan(self):
+        text = (REFERENCE_DIR / "commission.md").read_text().lower()
+        for term in (
+            "implementer model",
+            "authority",
+            "fallback",
+            "concurrency",
+            "paid compute",
+            "target branch",
+            "landing mode",
+            "approval cap",
+            "notifications",
+            "extensions",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+
+
+class CommissionPointersTest(unittest.TestCase):
+    def test_the_commission_points_at_every_tracker_snippet(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for tracker in TRACKERS:
+            with self.subTest(tracker=tracker):
+                self.assertIn(f"reference/trackers/{tracker}.md", text)
+
+
+class ExtensionsReferenceTest(unittest.TestCase):
+    def test_extensions_names_the_five_points_the_two_files_and_approval(self):
+        # #8's resolution: five points, two files, approval recorded in the plan,
+        # and a mid-run change re-approved.
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        for point in ("commission", "dispatch", "brief", "review", "notify"):
+            with self.subTest(point=point):
+                self.assertIn(point, text)
+        for marker in (
+            "docs/agents/marque.md",
+            "~/.config/marque/marque.md",
+            "applies after",
+            "plan.md",
+            "re-approv",
+            "add to or tighten",
+            "ignores that part",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_notify_events_live_here_and_the_battery_example_is_gone(self):
+        # #8: every ten landings is a core event; battery emergency left the list.
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        self.assertIn("every ten landings", text)
+        self.assertIn("otherwise chat", text)
+        self.assertNotIn("battery emergency", text)
+
+
+EXAMPLES = REPO / "examples"
+
+
+class BatteryPacingExampleTest(unittest.TestCase):
+    def test_the_sample_file_has_the_three_sections_it_exercises(self):
+        # #8's worked example: commission, dispatch and notify only.
+        text = (EXAMPLES / "battery-pacing" / "marque.md").read_text()
+        headings = [line for line in text.splitlines() if line.startswith("#")]
+        self.assertEqual(headings, ["## commission", "## dispatch", "## notify"])
+
+    def test_the_sample_policy_is_sixty_forty_twenty(self):
+        # #8's worked example: the 60/40/20 % battery policy.
+        text = (EXAMPLES / "battery-pacing" / "marque.md").read_text()
+        for mark in ("60 %", "40 %", "20 %"):
+            with self.subTest(mark=mark):
+                self.assertIn(mark, text)
+
+    def test_the_example_owns_its_variables_and_the_script_left_the_skill(self):
+        # SYMPHONY names retired with the move; the script lives at the repo root.
+        for path in EXAMPLES.rglob("*"):
+            if path.is_file():
+                with self.subTest(path=str(path)):
+                    self.assertNotIn("SYMPHONY", path.read_text())
+        self.assertFalse((SKILL_DIR / "scripts" / "battery.sh").exists())
+
+
+class ExtensionPointersTest(unittest.TestCase):
+    def test_the_skill_points_at_extensions_at_every_point_and_drops_pacing(self):
+        text = SKILL.read_text()
+        self.assertIsNone(re.search(r"^#+ .*Pacing", text, re.M))
+        self.assertGreaterEqual(text.count("reference/extensions.md"), 5)

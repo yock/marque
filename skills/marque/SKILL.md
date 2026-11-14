@@ -26,17 +26,17 @@ Extensions may add to or tighten these; none may loosen them.
 ## Before the first ticket
 
 - **State dir:** `~/.local/share/marque/<repo-name>`, overridable in `docs/agents/marque.md`. It holds `plan.md`, `ledger.tsv`, `briefs/`, `specs/`, `logs/` and `landing/`. Create it. After any context summary, read `plan.md`, then run `ledger.py --state-dir <dir> recover`.
-- **Commission:** agree it with the developer and record it in `plan.md` — authority, landing mode, concurrency, implementer model and variant, fallback, paid compute and its cap. Then apply the **commission** extensions. → `reference/commission.md`
+- **Commission:** agree it with the developer and record it in `plan.md` — authority, landing mode, concurrency, implementer model and variant, fallback, paid compute and its cap. Then apply the **commission** extensions (→ `reference/extensions.md`). → `reference/commission.md`
 - **Specs:** split the parent specs the queue names with `split_spec.py --backend B --repo O/N [--login L] --state-dir <dir> SPEC...`; read only the sections a ticket names.
 
 ## The loop, per ticket
 
 1. **Pick.** Run `frontier.py --backend B --repo O/N [--login L]`: it prints `WAITING` and `READ BY HAND` lines, then the ranked frontier. Read a `READ BY HAND` ticket and decide it yourself. Skip tickets that collide with in-flight ones (same files, same spec part, tickets that name each other). A ticket back in the queue whose ledger row is `needs-info` has been answered: read its newest comments, which amend it. When your analysis finds a `ready-for-agent` ticket missing something, ask (`reference/asking.md`).
 2. **Explore.** Fill `assets/explore.md` and **dispatch a background subagent** with it — read-only, on the implementer model. Ledger `exploring`.
-3. **Brief.** Write `briefs/<n>.md`: the ticket verbatim; its sources with later amendments already applied; what landed to build on, by name and file:line; **the design, fixed** at every new or shared seam (types, functions, where state lives, what refuses what); the criteria, added ones marked; the seams to test and the independent source of each expected value; collisions with in-flight tickets; the slices in order. Fill `assets/brief-tail.md` and append it, with the **brief** extensions. Ledger `briefed`.
+3. **Brief.** Write `briefs/<n>.md`: the ticket verbatim; its sources with later amendments already applied; what landed to build on, by name and file:line; **the design, fixed** at every new or shared seam (types, functions, where state lives, what refuses what); the criteria, added ones marked; the seams to test and the independent source of each expected value; collisions with in-flight tickets; the slices in order. Fill `assets/brief-tail.md` and append it, with the **brief** extensions (→ `reference/extensions.md`). Ledger `briefed`.
 4. **Claim.** `git worktree add <repo>/.marque/worktrees/marque-<n> -b marque-<n> <target>`; assign the ticket to the orchestrator identity.
-5. **Dispatch.** Apply the **dispatch** extensions, then **dispatch a background subagent**: "Implement ticket #n. Your brief is <path>: read it in full and follow it exactly. Work only in <worktree> (branch <branch>)." Ledger `running` with the session.
-6. **Review.** The review gates landing. Check the report — every criterion mapped to a test, expected values independent, questions it resolved itself — then `git diff --stat` and the hunks needing judgement (changed tests outside the ticket's area, new seams, anything reading ground truth it shouldn't). A failed review goes back: **resume the same session** with the file, the criterion and what to change. Ledger `retry`. Retries, stalls and fallback → `reference/operations.md`.
+5. **Dispatch.** Apply the **dispatch** extensions (→ `reference/extensions.md`), then **dispatch a background subagent**: "Implement ticket #n. Your brief is <path>: read it in full and follow it exactly. Work only in <worktree> (branch <branch>)." Ledger `running` with the session.
+6. **Review.** The review gates landing; apply the **review** extensions (→ `reference/extensions.md`). Check the report — every criterion mapped to a test, expected values independent, questions it resolved itself — then `git diff --stat` and the hunks needing judgement (changed tests outside the ticket's area, new seams, anything reading ground truth it shouldn't). A failed review goes back: **resume the same session** with the file, the criterion and what to change. Ledger `retry`. Retries, stalls and fallback → `reference/operations.md`.
 7. **Integrate.** Fetch, merge the current target branch into the ticket branch, resolve conflicts, build, run the touched tests, then the full suite as a **background command that wakes you**, its log in `logs/`. Conflict details → `reference/operations.md`.
 8. **Land** from a green full suite: write the resolution comment to a file, then `land.py direct …` or pr mode's `check` … `finish`. The calls, the target branch and the safeguards → `reference/landing.md`. File follow-ups found in review as `needs-triage` with `Part of #<spec>`.
 9. **Recompute** the frontier and fill the free slot. Run up to the commission's concurrency; prepare the next brief while implementers work.
@@ -47,7 +47,7 @@ A question goes on the ticket, never only in chat: numbered, each with a recomme
 
 ## Notify
 
-On the core events — target branch red, three failures in a row, a paid-compute cap refusing, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Send a short summary every ten landings. Apply the **notify** extensions. → `reference/operations.md`
+On the core events — target branch red, three failures in a row, a paid-compute cap refusing, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Send a short summary every ten landings. Apply the **notify** extensions (→ `reference/extensions.md`). → `reference/operations.md`
 
 ## Rules that held
 
