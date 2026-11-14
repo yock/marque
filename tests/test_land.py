@@ -568,5 +568,100 @@ class AlreadyClosedTest(unittest.TestCase):
             self.assertEqual(l.calls.read_text(), "comment 7 Finished #7: the worktree adds two.\n")
 
 
+class SquashFinishTest(unittest.TestCase):
+    def test_a_squash_merge_without_the_merge_commit_stops_before_anything_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            merge_pr(l, squash=True)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = finish(l, merge_style="squash")
+
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("a squash-merged PR needs --merge-commit", r.stderr)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+            self.assertFalse(l.calls.exists())
+
+    def test_a_squash_merge_lands_at_the_given_merge_commit_and_deletes_the_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            squashed = merge_pr(l, squash=True)
+
+            r = finish(l, merge_style="squash", merge_commit=squashed)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % squashed)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.repo), squashed)
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), squashed)
+            self.assertFalse(l.wt.exists())
+            self.assertEqual(
+                sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                "",
+            )
+
+
+FINISH_STEPS = ["confirmed", "synced", "closed", "commented", "cleaned"]
+
+
+class FinishCrashAndResumeTest(unittest.TestCase):
+    def test_a_crash_after_any_finish_step_resumes_without_repeating_it(self):
+        for step in FINISH_STEPS:
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as tmp:
+                l = make_landing(tmp)
+                self.assertEqual(check(l).returncode, 0)
+                merged = merge_pr(l)
+
+                r = finish(l, env={"MARQUE_LAND_CRASH_AFTER": step})
+
+                self.assertEqual(r.returncode, 70, r.stderr)
+                self.assertEqual(
+                    ledger("get", "7", "state", state=l.state).stdout.strip(), "landing"
+                )
+
+                r = finish(l)
+
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+                # Each tracker call happened exactly once.
+                self.assertEqual(
+                    l.calls.read_text(),
+                    "close 7\ncomment 7 Finished #7: the worktree adds two.\n",
+                )
+                self.assertEqual(sh("git", "rev-parse", "master", cwd=l.repo), merged)
+                self.assertFalse(l.wt.exists())
+                self.assertEqual(
+                    sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                    "",
+                )
+                self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+                self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
+                self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+
+
+class FinishAlreadyLandedTest(unittest.TestCase):
+    def test_check_and_finish_on_a_landed_ticket_only_report_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            merged = merge_pr(l)
+            self.assertEqual(finish(l).returncode, 0)
+            calls = l.calls.read_text()
+
+            r = check(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+            self.assertEqual(l.calls.read_text(), calls)
+
+
 if __name__ == "__main__":
     unittest.main()
