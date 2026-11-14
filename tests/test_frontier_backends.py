@@ -176,7 +176,7 @@ class BackendCase(unittest.TestCase):
     def run_frontier(self, backend, fixture, *args, extra_env=None):
         self.fixture_path.write_text(json.dumps(fixture))
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(("SYMPHONY", "STUB_", "GH_", "GITLAB_"))}
+               if not k.startswith(("SYMPHONY", "STUB_", "GH_", "GITLAB_", "MARQUE_"))}
         env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
         stub = {"gitea": "TEA", "github": "GH", "gitlab": "GLAB"}[backend]
         env[f"STUB_{stub}_FIXTURE"] = str(self.fixture_path)
@@ -260,6 +260,155 @@ class GitLabLinksTest(BackendCase):
             "externally blocked: #10<-#6\n"))
         starts = [c[1] for c in self.calls() if c[0] == "start"]
         self.assertIn("graphql:11", starts)
+
+
+class SequentialTest(BackendCase):
+    def test_github_calls_are_one_at_a_time_and_the_lists_come_first_after_login(self):
+        # With --login, `gh auth token` is the first call; then the two queues.
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.log.read_text().splitlines()
+        self.assertNotIn("OVERLAP", lines)
+        kinds = [line.split()[0] for line in lines]
+        self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
+        starts = [line.split()[1] for line in lines if line.startswith("start ")]
+        self.assertEqual(starts[0], "auth/token")
+        self.assertEqual(starts[1:3], [
+            "repos/o/r/issues?state=open&labels=ready-for-agent&per_page=100&page=1",
+            "repos/o/r/issues?state=open&per_page=100&page=1",
+        ])
+
+    def test_gitlab_calls_are_one_at_a_time_starting_with_the_two_lists(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = self.log.read_text().splitlines()
+        self.assertNotIn("OVERLAP", lines)
+        kinds = [line.split()[0] for line in lines]
+        self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
+        starts = [line.split()[1] for line in lines if line.startswith("start ")]
+        self.assertEqual(starts[:2], [
+            f"projects/{PROJECT}/issues?state=opened&scope=all"
+            "&labels=ready-for-agent&per_page=100&page=1",
+            f"projects/{PROJECT}/issues?state=opened&scope=all&per_page=100&page=1",
+        ])
+
+
+class GitHubParentTest(BackendCase):
+    def test_a_native_parent_ranks_the_ticket_and_shows_in_json(self):
+        # #5 is parented to #1 by `parent_issue_url` alone: its body is empty. #6 has
+        # no parent. Both fan out nothing (#1 is not queued).
+        queue = [
+            {"number": 1, "title": "The spec", "state": "open", "labels": [],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": None},
+            {"number": 5, "title": "Child", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": 1},
+            {"number": 6, "title": "Orphan", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": None},
+        ]
+
+        r = self.run_frontier("github", github_fixture(queue), "--json")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [
+            {"number": 5, "title": "Child", "fanout": 0, "parent": 1, "comments": 0,
+             "hand": []},
+            {"number": 6, "title": "Orphan", "fanout": 0, "parent": None, "comments": 0,
+             "hand": []},
+        ])
+
+
+class IdentityTest(BackendCase):
+    def test_github_login_signs_every_api_call_and_never_puts_the_token_in_argv(self):
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        api = [ln for ln in starts if ln.split()[1].startswith("repos/")]
+        self.assertTrue(api)
+        self.assertTrue(all(ln.endswith(" token=tok-bot") for ln in api), api)
+        self.assertTrue(all("tok-bot" not in ln.split(" token=")[0] for ln in starts), starts)
+
+    def test_github_login_token_is_not_echoed_on_a_failure(self):
+        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot",
+                              extra_env={"STUB_GH_FAIL": "blocked_by"})
+
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("tok-bot", r.stderr)
+        self.assertNotIn("tok-bot", r.stdout)
+        self.assertIn("gh api", r.stderr)
+
+    def test_gitlab_login_names_the_variable_that_holds_the_token(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              "--login", "MARQUE_GITLAB_TOKEN",
+                              extra_env={"MARQUE_GITLAB_TOKEN": "glab-secret"})
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(starts)
+        self.assertTrue(all(ln.endswith(" token=glab-secret") for ln in starts), starts)
+        self.assertTrue(all("glab-secret" not in ln.split(" token=")[0] for ln in starts), starts)
+
+    def test_gitlab_login_names_an_unset_variable_and_fails_loudly(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              "--login", "MARQUE_GITLAB_TOKEN")
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("MARQUE_GITLAB_TOKEN", r.stderr)
+        self.assertNotIn("glab-secret", r.stderr)
+
+    def test_without_login_no_token_is_set(self):
+        gh = self.run_frontier("github", github_fixture(QUEUE))
+        self.assertEqual(gh.returncode, 0, gh.stderr)
+        gh_starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(all(ln.endswith(" token=-") for ln in gh_starts), gh_starts)
+
+        self.log.unlink()
+        glab = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+        self.assertEqual(glab.returncode, 0, glab.stderr)
+        glab_starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
+        self.assertTrue(all(ln.endswith(" token=-") for ln in glab_starts), glab_starts)
+
+
+class SplitGitHubTest(BackendCase):
+    def test_a_spec_is_split_through_the_github_backend(self):
+        from tests.test_split_spec import BODY, FILES, INDEX
+
+        fixture = {
+            "repos/o/r/issues/18": {
+                "number": 18, "title": "Spec: Thing", "state": "open", "body": BODY,
+                "labels": [], "assignees": [], "comments": 2,
+                "repository": {"full_name": REPO_NAME}},
+            "repos/o/r/issues/18/comments": [
+                {"body": "First comment.\n"}, {"body": None}],
+        }
+        self.fixture_path.write_text(json.dumps(fixture))
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(("SYMPHONY", "STUB_", "GH_", "GITLAB_", "MARQUE_"))}
+        env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
+        env["STUB_GH_FIXTURE"] = str(self.fixture_path)
+        env["STUB_GH_LOG"] = str(self.log)
+        state = self.dir / "state"
+
+        r = subprocess.run(
+            [sys.executable, str(SCRIPTS / "split_spec.py"), "--backend", "github",
+             "--repo", REPO_NAME, "--state-dir", str(state), "18"],
+            cwd=self.dir, capture_output=True, text=True, env=env)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = state / "specs" / "18"
+        self.assertEqual(sorted(p.name for p in out.iterdir()),
+                         sorted(list(FILES) + ["index.txt"]))
+        for name, content in FILES.items():
+            self.assertEqual((out / name).read_text(), content)
+        self.assertEqual((out / "index.txt").read_text(), INDEX)
+        self.assertEqual(
+            r.stdout, f"#18: 4 body sections, 2 comments -> {out}\n")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""frontier.py --backend gitea --repo OWNER/NAME [--login L] [--json]: the ready queue, ranked.
+"""frontier.py --backend gitea|github|gitlab --repo OWNER/NAME [--login L] [--host H]
+[--json]: the ready queue, ranked.
 
 The tracker's facts arrive as flags; this script reads no config file and no
 environment. The queue is the open issues carrying --label. A ticket is on the
