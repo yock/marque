@@ -55,11 +55,21 @@ class RetiredVocabularyTest(unittest.TestCase):
     def test_the_skill_leaves_the_retired_names_out(self):
         self.assert_clean(SKILL)
 
+    def test_the_landing_reference_leaves_the_retired_names_out(self):
+        self.assert_clean(REFERENCE_DIR / "landing.md")
+
 
 class ReferenceIndexTest(unittest.TestCase):
     def test_the_skill_points_at_exactly_its_six_references(self):
         mentioned = {Path(p).name for p in REFERENCE_PATH.findall(SKILL.read_text())}
         self.assertEqual(mentioned, REFERENCES)
+
+
+class LandingReferenceTest(unittest.TestCase):
+    def test_landing_names_the_guard_the_target_branch_and_the_script(self):
+        text = (REFERENCE_DIR / "landing.md").read_text()
+        for marker in ("--no-ff", "target branch", "land.py"):
+            self.assertIn(marker, text)
 
 
 class LoopCallsTest(unittest.TestCase):
