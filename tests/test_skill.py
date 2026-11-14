@@ -298,3 +298,27 @@ class HarnessReferenceTest(unittest.TestCase):
         for marker in ("wait_agent", "alias", "additionalDirectories", "writable_roots"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+
+    def test_messaging_a_running_implementer_is_an_extra_not_core(self):
+        text = self.harnesses_md()
+        section = re.search(r"^#+ [^\n]*\bextras?\b[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
+        self.assertIsNotNone(section, "no heading names the per-harness extras")
+        self.assertIn("messaging a running implementer", section.group(1).lower())
+
+    def test_the_commission_points_at_the_permission_setup(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("reference/harnesses.md", text)
+
+    def test_the_harness_tools_stay_out_of_the_skill(self):
+        text = SKILL.read_text()
+        for name in (
+            "spawn_agent",
+            "send_input",
+            "wait_agent",
+            "resume_agent",
+            "additionalDirectories",
+            "writable_roots",
+            "write_stdin",
+        ):
+            with self.subTest(name=name):
+                self.assertNotIn(name, text)
