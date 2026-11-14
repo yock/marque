@@ -104,6 +104,69 @@ def clean_up(a):
         git(a.repo, "branch", "-d", a.branch)
 
 
+def preconditions(a):
+    """Every fresh-run check, as a list of failures; empty when the landing may start."""
+    fails = []
+
+    try:
+        git(a.repo, "fetch", a.remote)
+    except GitError as e:
+        fails.append("git fetch %s failed: %s" % (a.remote, e))
+
+    try:
+        current = git(a.repo, "rev-parse", "--abbrev-ref", "HEAD")
+        if current != a.target:
+            fails.append("the repo is on %r, not %s" % (current, a.target))
+        local = git(a.repo, "rev-parse", a.target)
+        remote_tip = git(a.repo, "rev-parse", "%s/%s" % (a.remote, a.target))
+        if local != remote_tip:
+            fails.append(
+                "the repo's %s is not at %s/%s (%s != %s)"
+                % (a.target, a.remote, a.target, local[:7], remote_tip[:7])
+            )
+        if not is_ancestor(a.repo, a.target, a.branch):
+            fails.append("%s does not contain %s" % (a.branch, a.target))
+        if git(a.repo, "status", "--porcelain"):
+            fails.append("the repo has uncommitted changes")
+    except GitError as e:
+        fails.append("cannot inspect the repo: %s" % e)
+
+    wt = worktree_path(a)
+    if not wt.exists():
+        fails.append("the worktree %s is missing" % wt)
+    else:
+        try:
+            if git(wt, "rev-parse", "--abbrev-ref", "HEAD") != a.branch:
+                fails.append("the worktree is not on %s" % a.branch)
+            if git(wt, "status", "--porcelain"):
+                fails.append("the worktree has uncommitted changes")
+        except GitError as e:
+            fails.append("cannot inspect the worktree %s: %s" % (wt, e))
+
+    if not a.suite_green.exists():
+        fails.append("the suite log %s is missing" % a.suite_green)
+    elif a.suite_green.stat().st_size == 0:
+        fails.append("the suite log %s is empty" % a.suite_green)
+    else:
+        try:
+            tip_time = int(git(a.repo, "log", "-1", "--format=%ct", a.branch))
+            if a.suite_green.stat().st_mtime <= tip_time:
+                fails.append(
+                    "the suite log %s predates the branch tip (%s was committed later)"
+                    % (a.suite_green, a.branch)
+                )
+        except GitError as e:
+            fails.append("cannot read the time of %s's tip: %s" % (a.branch, e))
+
+    # Safeguard 3: the resolution comment is settled before anything changes.
+    if not a.resolution.exists():
+        fails.append("the resolution file %s is missing" % a.resolution)
+    elif a.resolution.stat().st_size == 0:
+        fails.append("the resolution file %s is empty" % a.resolution)
+
+    return fails
+
+
 def land(a):
     """Run the landing from start to finish; return the process exit code."""
     issue = str(a.issue)
@@ -111,6 +174,11 @@ def land(a):
         hash_ = ledger_field(a.state_dir, issue, "landed")
         print("landed #%s %s" % (issue, hash_))
         return 0
+    fails = preconditions(a)
+    if fails:
+        for failure in fails:
+            print("land.py: precondition failed: %s" % failure, file=sys.stderr)
+        return 3
     try:
         set_ledger(a.state_dir, issue, "landing")
         hash_ = do_merge(a)
@@ -162,6 +230,7 @@ def main(argv=None):
     a = parse_args(argv)
     a.repo = Path(a.repo).resolve()
     a.resolution = Path(a.resolution).resolve()
+    a.suite_green = Path(a.suite_green).resolve()
     if a.cmd == "direct":
         return land(a)
     return 2

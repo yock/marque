@@ -72,8 +72,8 @@ def make_landing(tmp):
     # The suite log must post-date the branch tip; commit times are whole seconds,
     # so put the log a minute into the future rather than racing the clock.
     l.suite.write_text("OK 12 tests\n")
-    tip_time = int(sh("git", "log", "-1", "--format=%ct", cwd=l.wt))
-    os.utime(l.suite, (tip_time + 60, tip_time + 60))
+    l.tip_time = int(sh("git", "log", "-1", "--format=%ct", cwd=l.wt))
+    os.utime(l.suite, (l.tip_time + 60, l.tip_time + 60))
 
     l.resolution.write_text(RESOLUTION_TEXT)
     l.state.mkdir()
@@ -148,10 +148,78 @@ class HappyPathTest(unittest.TestCase):
                 "comment 7 Finished #7: the worktree adds two.\nclose 7\n",
             )
             self.assertFalse(l.wt.exists())
-            self.assertEqual(sh("git", "branch", "--list", BRANCH, cwd=l.repo), "")
+            self.assertEqual(sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo), "")
             self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
             self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
             self.assertFalse((l.state / "landing" / "7.log").exists())
+
+
+def commit_elsewhere(l):
+    """A commit on origin's master that the main checkout has not seen."""
+    other = l.root / "other"
+    sh("git", "clone", "--quiet", str(l.origin), str(other), cwd=l.root)
+    sh("git", "config", "user.name", "Other", cwd=other)
+    sh("git", "config", "user.email", "other@example.com", cwd=other)
+    (other / "numbers.txt").write_text("one\nthree\n")
+    sh("git", "commit", "--quiet", "-am", "Elsewhere", cwd=other)
+    sh("git", "push", "--quiet", "origin", "master", cwd=other)
+
+
+def commit_on_master(l):
+    """After the branch was cut, master moves on."""
+    (l.repo / "numbers.txt").write_text("one\nfour\n")
+    sh("git", "commit", "--quiet", "-am", "Master moves on", cwd=l.repo)
+    sh("git", "push", "--quiet", "origin", "master", cwd=l.repo)
+
+
+def dirty_repo(l):
+    (l.repo / "numbers.txt").write_text("one\nfive\n")
+
+
+def dirty_worktree(l):
+    (l.wt / "numbers.txt").write_text("one\nsix\n")
+
+
+def suite_log_missing(l):
+    l.suite.unlink()
+
+
+def suite_log_stale(l):
+    os.utime(l.suite, (l.tip_time - 60, l.tip_time - 60))
+
+
+def resolution_missing(l):
+    l.resolution.unlink()
+
+
+class PreconditionTest(unittest.TestCase):
+    def test_each_broken_precondition_stops_before_anything_changes(self):
+        cases = [
+            ("master behind origin", commit_elsewhere, "origin/master"),
+            ("branch does not contain master", commit_on_master, "does not contain master"),
+            ("dirty repo", dirty_repo, "repo has uncommitted changes"),
+            ("dirty worktree", dirty_worktree, "worktree has uncommitted changes"),
+            ("missing suite log", suite_log_missing, "suite log"),
+            ("suite log older than the branch tip", suite_log_stale, "predates"),
+            ("missing resolution file", resolution_missing, "resolution file"),
+        ]
+        for name, mutate, phrase in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                l = make_landing(tmp)
+                mutate(l)
+                origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+
+                r = land(l)
+
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn(phrase, r.stderr)
+                # Nothing changed: no ledger row, origin untouched, no tracker
+                # calls, the worktree and branch still there.
+                self.assertNotEqual(ledger("get", "7", state=l.state).returncode, 0)
+                self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+                self.assertFalse(l.calls.exists())
+                self.assertTrue(l.wt.exists())
+                self.assertEqual(sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo), BRANCH)
 
 
 if __name__ == "__main__":
