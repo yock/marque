@@ -267,3 +267,28 @@ class ExtensionPointersTest(unittest.TestCase):
         text = SKILL.read_text()
         self.assertIsNone(re.search(r"^#+ .*Pacing", text, re.M))
         self.assertGreaterEqual(text.count("reference/extensions.md"), 5)
+
+
+# #33: the neutral verbs SKILL.md dispatches in, and the three harnesses the
+# reference maps them to.
+HARNESS_VERBS = (
+    "dispatch a background subagent",
+    "resume the same session",
+    "push a notification",
+    "run a background command that wakes you",
+)
+HARNESSES = ("OpenCode", "Claude Code", "Codex")
+
+
+class HarnessReferenceTest(unittest.TestCase):
+    def harnesses_md(self):
+        return (REFERENCE_DIR / "harnesses.md").read_text()
+
+    def test_every_verb_skill_md_uses_is_mapped_per_harness(self):
+        text = self.harnesses_md()
+        for verb in HARNESS_VERBS:
+            with self.subTest(verb=verb):
+                self.assertIn(verb, text)
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.assertIn(harness, text)
