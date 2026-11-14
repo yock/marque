@@ -2,59 +2,56 @@
 
 ## The ledger
 
-`state.dir/ledger.tsv`, one row per ticket, tab-separated:
-
-```
-issue  state  branch  worktree  session  attempts  brief  verdict  landed  note
-```
-
-States: `queued` `exploring` `briefed` `running` `review` `retry` `landing` `landed` `opus` (the orchestrator implements) `needs-info` `blocked` `ready-for-human` `abandoned`. Put the user-question marker (`state.asked_marker`, default `QUESTIONS ON TICKET`) in a row's note when you post questions on its ticket, so `frontier.py` flags it `ANSWERED` when it comes back.
-
-Update rows with a small script (read, split on tabs, set fields, write back); never hand-edit while an agent might.
+The ledger is `ledger.tsv` in the state dir, one row per ticket, kept by `scripts/ledger.py --state-dir <dir>` — `get`, `set`, `list` and `recover`. The states and what each one means are in `ledger.py --help`: read them there, keep no second copy. Rows change through the script, never by hand while an agent may hold the file. A ticket waiting on the developer is `needs-info` (→ `reference/asking.md`).
 
 ## Retries and fallback
 
-- A failed review goes back to the **same session** with specific findings: the file, the criterion, what to change. About half of tickets need one round.
-- Agreed default: two rounds at the normal variant, one at the strongest, then the orchestrator implements (ledger → `opus`).
-- **Stalls:** a session silent for over an hour, with no new commits and nothing running in its worktree, has stalled. Resume it with explicit finish steps, or take over integration yourself.
-- An implementer that ends its turn while its suite runs in the background leaves work uncommitted: resume the same session.
+- A failed review goes back to the **same session** with specific findings: the file, the criterion, what to change. A round of findings is normal.
+- The default ladder is two rounds at the normal variant, one at the strongest, then the orchestrator implements the ticket itself (ledger `orchestrator`), if the commission's fallback term allows; otherwise ask on the ticket.
+
+## Stalls
+
+A session silent for over **the stall hour** (default 1 hour, overridable only in `docs/agents/marque.md`), with no new commits and nothing running in its worktree, has stalled. Resume it with explicit finish steps, or take over integration. An implementer that ends its turn while its suite runs leaves work uncommitted: resume the same session.
 
 ## Integration details
 
-- Merge conflicts are mostly additive (enum entries, records, struct fields, test registrations). Take both, in a stable order.
-- A clean textual merge can still fail to compile when one side changed a signature the other side calls. The clean build catches it; never run filtered tests after a failed build — they run the previous binary and pass falsely.
-- **Positional initializers** (C row tables built by macros, tuples, positional constructor calls) are the same hazard: two branches each append a field to the struct, the textual merge is clean or trivially additive, and one side's positional values now land in the other's fields. Check that each row macro lists values in the merged struct's field order; build with warnings visible (`excess elements in scalar initializer`, `braces around scalar initializer` are the tell).
+- Merge conflicts are mostly additive (list entries, record fields, registrations). Take both, in a stable order.
+- When a hunk splits a function, the shared closing tail goes between the halves.
+- Where the project has a build step, a clean textual merge can still fail to build when one side changed a signature the other calls. Never run filtered tests after a failed build: stale output passes falsely.
+- Positional constructs (row tables, tuples, positional constructor calls) can merge cleanly and still be wrong. Two branches each add a field, and one side's values land in the other side's fields. Check the merged order.
 - When both sides only **appended** to a long file (tests, registries) and git interleaves the two blocks into several hunks, check whether one side only appended to the merge base; if so, the clean result is the other side's file plus that side's appended tail.
-- After merging main, run the tests of the areas the merge touched before the full suite: they fail fastest.
-- A test from a ticket that landed after this branch forked can break on this branch's new default behaviour: fix it on the branch, as the branch's own sweep did for older tests.
-- The user may land on main too. Always fetch and re-check that the branch contains main right before merging. If main moved past the branch only in docs (no code, build files or tests), merging the branch straight onto main needs no new test run; check that with `git diff --name-only`.
+- After merging the target branch, run the tests of the areas the merge touched before the full suite: they fail fastest.
+- A test from a ticket that landed after this branch forked can break on the branch's new default behaviour: fix it on the branch, as the branch's own sweep did for older tests.
+- The developer lands on the target branch too. Right before landing, re-check that the branch contains the target; if the target moved only in docs (no code, build files or tests), the landing needs no new test run — check with `git diff --name-only`.
 
 ## Shared machine
 
-Implementers and the orchestrator's integration runs share one machine. **Full test suites must take turns**: give each project's full-suite command a machine-wide lock (`flock /tmp/<project>-full-suite.lock …`) in the project's brief rules, and take the same lock for integration runs. Overlapping suites raise memory pressure until **systemd-oomd** kills the whole cgroup's work at once: every shard of every run ends at the same second with "Subprocess terminated", no failing test, nothing in the kernel log (`oomctl` shows the monitored cgroups and their page scans). Rerun after it; it isn't the branch's failure.
+Implementers and integration runs share one machine. If a project's full suite is heavy, suites take turns. The project's `AGENTS.md` says how, and the orchestrator's integration runs follow the same rule. The commission asks about it (→ `reference/commission.md` step 7).
 
-Implementers also never kill processes by name (the brief template forbids it): a name matches other agents' runs too.
+## Never kill by name
 
-## Landing as one guarded script
+Implementers and the orchestrator never kill processes by name or pattern: a name matches other agents' runs too. The brief tail says so to implementers.
 
-Run a landing (preconditions, merge, push, comment, close, worktree and branch removal, ledger) as **one script under `set -e`**, or with every step inside one `if`. Never `checks && merge && … ; tea comments …; git worktree remove …`: when a precondition fails, the steps after the `;` still run. That once force-removed a worktree and marked a ticket landed while nothing had merged (the branch survived only because `git branch -d` refused an unmerged branch). Write the resolution comment to a file **before** the guarded part, so a failure can't leave it unwritten.
+## Landing
+
+The guarded-landing rule and its reason are in `reference/landing.md`, enforced by `land.py`.
 
 ## Crash recovery
 
-On restart, before anything else, for every ledger row in `running`, `review`, `retry` or `landing`:
+On restart, before anything else, run `ledger.py recover`. For each row it lists:
 
-1. `git -C <worktree> status` and `git log <main>..HEAD`.
-2. Stash uncommitted changes (`orch-<n>-recovery`), rebuild, run the suite.
-3. Green → resume at review. Red or unclear → reset to the last green commit, or remove the worktree, unassign, ledger → `queued`.
-4. A `landing` row: check whether the merge reached main and origin, and whether the comment and close happened; finish what didn't.
+1. `git -C <worktree> status` and `git log <target>..HEAD`.
+2. Stash uncommitted changes as `marque-<n>-recovery`; rebuild and run the suite.
+3. Green → resume at review. Red or unclear → reset to the last green commit, or remove the worktree, unassign, and set the ledger to `queued`.
+4. A `landing` row: re-run the same `land.py` command, which resumes from its journal.
 
 ## Notifications
 
-Notify the user's phone (if available) when: the battery hits emergency; main is red; three failures in a row; a paid-compute cap refuses; a ticket goes `needs-info` or `ready-for-human`; the frontier is down to externally blocked tickets. A short summary every ten landings.
+The core events and the default channel are in `reference/extensions.md` (notify). Push a notification on each core event; a notify extension may add events and add or replace the channel, never drop a core one.
 
 ## Context management
 
-- After a summary: `plan.md`, then the ledger, then the battery log's tail.
+- After a summary, read `plan.md`, then run `ledger.py recover`.
 - Specs are split by `split_spec.py`; read only the named sections.
-- Implementers get a short prompt pointing at the brief file; their report is short.
+- Implementers get a short prompt pointing at the brief file, and their report is short.
 - A landed ticket is finished: its ledger row and resolution comment hold all that matters.

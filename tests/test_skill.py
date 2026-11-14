@@ -322,3 +322,60 @@ class HarnessReferenceTest(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 self.assertNotIn(name, text)
+
+
+# #34: the operations lessons, reworded for any stack (#15's sorting test).
+PROJECT_SPECIFIC = (
+    "opus",
+    "ANSWERED",
+    "asked_marker",
+    "orch-<n>-recovery",
+    "flock",
+    "oomd",
+    "oomctl",
+    "battery",
+    "systemd",
+    "excess elements",
+    "C row",
+    "about half",
+)
+POSITIONAL_LESSON = (
+    "Positional constructs (row tables, tuples, positional constructor calls) "
+    "can merge cleanly and still be wrong. Two branches each add a field, and "
+    "one side's values land in the other side's fields. Check the merged order."
+)
+SHARED_MACHINE_LESSON = (
+    "Implementers and integration runs share one machine. If a project's full "
+    "suite is heavy, suites take turns. The project's `AGENTS.md` says how, and "
+    "the orchestrator's integration runs follow the same rule."
+)
+
+
+class OperationsReferenceTest(unittest.TestCase):
+    def operations_md(self):
+        return (REFERENCE_DIR / "operations.md").read_text()
+
+    def test_the_passing_lessons_name_no_stack_tool_or_machine(self):
+        text = self.operations_md()
+        for marker in PROJECT_SPECIFIC:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, text)
+        self.assertIsNone(re.search(r"\bmain\b", text))
+
+    def test_the_operations_name_their_state_scripts_and_neighbours(self):
+        text = self.operations_md()
+        for marker in (
+            "orchestrator",
+            "marque-<n>-recovery",
+            "target branch",
+            "docs/agents/marque.md",
+            "ledger.py",
+            "reference/landing.md",
+            "reference/extensions.md",
+            "stall hour",
+            "default 1 hour",
+            POSITIONAL_LESSON,
+            SHARED_MACHINE_LESSON,
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
