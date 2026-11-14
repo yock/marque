@@ -39,7 +39,7 @@ QUESTION = re.compile(r"(?mi)^#{1,6}\s*(open\s+)?questions?\b")
 MAP_LABEL = "wayfinder:map"
 
 
-class Level:
+class TicketReading:
     """One queued ticket after its native and body edges have been read."""
 
     def __init__(self, ticket):
@@ -199,7 +199,7 @@ def run(a):
 
     levels = {}
     for ticket in sorted(queue, key=lambda t: t["number"]):
-        level = Level(ticket)
+        level = TicketReading(ticket)
         level.native = tracker.dependencies(level.number) or []
         read_body(level)
         merge_native(level, a.repo)
