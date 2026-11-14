@@ -168,6 +168,192 @@ class FrontierTest(FrontierCase):
         self.assertIn("#    6  fan   0  parent     -  c0  Section says none", r.stdout)
         self.assertNotIn("READ BY HAND", r.stdout)
 
+    def test_native_and_body_blockers_that_disagree_are_both_counted(self):
+        # The tracker says #5 blocks #9; the body says #6. Union: both block, and the
+        # mismatch is reported. #5 is open, #6 is closed.
+        self.issues(
+            [{"number": 5, "state": "open"},
+             {"number": 6, "state": "closed"},
+             {"number": 9, "title": "Unsure", "labels": ["ready-for-agent"],
+              "body": "Blocked by: #6"}],
+            deps={9: [5]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: native [5] vs body [6] (both counted)", r.stdout)
+        self.assertNotIn("#    9  fan", r.stdout)
+        self.assertIn("externally blocked: #9<-#5", r.stdout)
+
+    def test_parent_order_breaks_a_fanout_tie(self):
+        # All four have fan-out 0. Parents: #7, #18, #18, none.
+        # Rank says parented first, ascending by parent, then parentless.
+        self.issues(
+            [{"number": 7, "title": "Spec seven"},
+             {"number": 18, "title": "Spec eighteen"},
+             {"number": 30, "title": "Child of 18", "labels": ["ready-for-agent"],
+              "body": "Part of #18"},
+             {"number": 31, "title": "Child of 7", "labels": ["ready-for-agent"],
+              "body": "## Parent\n\n#7"},
+             {"number": 32, "title": "Parentless", "labels": ["ready-for-agent"]},
+             {"number": 33, "title": "Also child of 18", "labels": ["ready-for-agent"],
+              "body": "Part of #18"}],
+            deps={30: [], 31: [], 32: [], 33: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines()[1:], [
+            "#   31  fan   0  parent #   7  c0  Child of 7",
+            "#   30  fan   0  parent #  18  c0  Child of 18",
+            "#   33  fan   0  parent #  18  c0  Also child of 18",
+            "#   32  fan   0  parent     -  c0  Parentless",
+        ])
+
+    def test_an_assigned_ticket_is_never_on_the_frontier(self):
+        self.issues(
+            [{"number": 5, "title": "Claimed", "labels": ["ready-for-agent"],
+              "assignees": ["dev"]},
+             {"number": 6, "title": "Free", "labels": ["ready-for-agent"]}],
+            deps={5: [], 6: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("queue 2  frontier 1  externally blocked 0", r.stdout)
+        self.assertIn("#    6  fan   0  parent     -  c0  Free", r.stdout)
+        self.assertNotIn("#    5  fan", r.stdout)
+
+    def test_json_prints_the_frontier_and_the_login_reaches_every_call(self):
+        self.issues(
+            [{"number": 7, "title": "Child", "labels": ["ready-for-agent"],
+              "body": "Part of #18", "comments": 2},
+             {"number": 8, "title": "Parentless", "labels": ["ready-for-agent"]},
+             {"number": 18, "title": "Spec"}],
+            deps={7: [], 8: []},
+            comments={7: ["one", "two"]},
+        )
+
+        r = self.run_frontier("--json", login="bot")
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [
+            {"number": 7, "title": "Child", "fanout": 0, "parent": 18, "comments": 2, "hand": []},
+            {"number": 8, "title": "Parentless", "fanout": 0, "parent": None, "comments": 0,
+             "hand": []},
+        ])
+        self.assertTrue(self.log.read_text().splitlines()[0].endswith(" login=bot"))
+
+    def test_a_url_and_a_cross_repo_reference_are_reported_and_block(self):
+        self.issues(
+            [{"number": 9, "title": "URL", "labels": ["ready-for-agent"],
+              "body": "Blocked by: https://git.example/o/r/issues/4"},
+             {"number": 10, "title": "Cross repo", "labels": ["ready-for-agent"],
+              "body": "Blocked by: other/repo#2"}],
+            deps={9: [], 10: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: unparseable reference "
+                      "https://git.example/o/r/issues/4, treated as open", r.stdout)
+        self.assertIn("READ BY HAND #10: unparseable reference other/repo#2, treated as open",
+                      r.stdout)
+        self.assertIn("queue 2  frontier 0  externally blocked 0", r.stdout)
+
+    def test_a_reference_to_a_missing_issue_is_treated_as_open(self):
+        self.issues(
+            [{"number": 9, "title": "Gone", "labels": ["ready-for-agent"],
+              "body": "Blocked by: #99"}],
+            deps={9: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: reference #99 not found, treated as open", r.stdout)
+        self.assertIn("queue 1  frontier 0  externally blocked 1", r.stdout)
+        self.assertIn("externally blocked: #9<-#99", r.stdout)
+
+    def test_a_blocker_labelled_as_a_map_is_not_a_ticket(self):
+        self.issues(
+            [{"number": 50, "title": "A map", "labels": ["wayfinder:map"]},
+             {"number": 9, "title": "Task", "labels": ["ready-for-agent"]}],
+            deps={9: [50]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: blocked by #50, a map or spec, not a ticket", r.stdout)
+        self.assertNotIn("#    9  fan", r.stdout)
+        self.assertIn("externally blocked: #9<-#50", r.stdout)
+
+    def test_a_blocker_that_is_a_queued_tickets_parent_is_a_spec(self):
+        # #18 is an ordinary open issue, but #22 is `Part of #18`, so #18 is a spec.
+        self.issues(
+            [{"number": 9, "title": "Waits on the spec", "labels": ["ready-for-agent"]},
+             {"number": 18, "title": "The spec"},
+             {"number": 22, "title": "A child", "labels": ["ready-for-agent"],
+              "body": "Part of #18"}],
+            deps={9: [18], 22: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: blocked by #18, a map or spec, not a ticket", r.stdout)
+        self.assertIn("#   22  fan   0  parent #  18  c0  A child", r.stdout)
+
+    def test_questions_in_the_newest_comment_need_the_waiting_label(self):
+        self.issues(
+            [{"number": 9, "title": "Needs an answer", "labels": ["ready-for-agent"],
+              "comments": 1}],
+            deps={9: []},
+            comments={9: ["## Questions\n\n- which database?"]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: has questions but no needs-info label", r.stdout)
+        # Read-by-hand tickets stay on the frontier when they are otherwise eligible.
+        self.assertIn("#    9  fan   0  parent     -  c1  Needs an answer", r.stdout)
+
+    def test_a_questioning_ticket_with_the_waiting_label_waits(self):
+        self.issues(
+            [{"number": 9, "title": "Asked", "labels": ["ready-for-agent", "needs-info"],
+              "comments": 1}],
+            deps={9: []},
+            comments={9: ["## Questions\n\n- which database?"]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("WAITING #9 (needs-info)", r.stdout)
+        self.assertIn("queue 1  frontier 0  externally blocked 0", r.stdout)
+        self.assertNotIn("READ BY HAND", r.stdout)
+        self.assertNotIn("#    9  fan", r.stdout)
+
+    def test_only_the_newest_comment_is_read_for_questions(self):
+        self.issues(
+            [{"number": 9, "title": "Answered", "labels": ["ready-for-agent"],
+              "comments": 2}],
+            deps={9: []},
+            comments={9: ["## Questions\n\n- which database?", "## Answer\n\n- postgres"]},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("READ BY HAND", r.stdout)
+        self.assertIn("#    9  fan   0  parent     -  c2  Answered", r.stdout)
+
     def test_a_failed_tracker_call_exits_nonzero_and_names_the_call(self):
         self.issues(
             [{"number": 5, "labels": ["ready-for-agent"]}],
