@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A stub `gh` for the frontier tests. Only `gh auth token` and `gh api` exist.
+"""A stub `gh` for the frontier tests. Only `gh api` exists.
 
 STUB_GH_FIXTURE  a JSON object mapping a request key to its response. The key is the
                  PATH without its query string, plus `?labels=X` when present.
@@ -7,13 +7,12 @@ STUB_GH_FIXTURE  a JSON object mapping a request key to its response. The key is
                  `{"message": "Not Found"}` on stdout with `gh: Not Found (HTTP 404)`
                  on stderr and exit 1, as real gh does for a 404.
 STUB_GH_LOG      a file to append `start LABEL token=V` / `end LABEL token=V`. V is
-                 GH_TOKEN or `-`. LABEL is the path, or `auth/token --user U`.
+                 GH_TOKEN or `-`. LABEL is the path.
 STUB_GH_FAIL     a substring of LABEL; matching calls print to stderr, answer a
                  server error JSON and exit 1 with `(HTTP 500)`.
 
-`gh auth token --user U [--hostname H]` prints `tok-U`. While a call is open the stub
-holds `<log>.lock`; if it cannot create it, the log gets an `OVERLAP` line, which is
-how a test detects calls made in parallel.
+While a call is open the stub holds `<log>.lock`; if it cannot create it, the log gets
+an `OVERLAP` line, which is how a test detects calls made in parallel.
 """
 import json
 import os
@@ -88,24 +87,8 @@ def call(label, body):
 
 
 def main(argv):
-    if argv[:2] == ["auth", "token"]:
-        rest, user = argv[2:], None
-        while rest:
-            if rest[0] == "--user" and len(rest) > 1:
-                user, rest = rest[1], rest[2:]
-            elif rest[0] == "--hostname" and len(rest) > 1:
-                rest = rest[2:]
-            else:
-                print(f"stub gh: unsupported argument {rest[0]}", file=sys.stderr)
-                return 1
-        if user is None:
-            print("stub gh: auth token needs --user", file=sys.stderr)
-            return 1
-        label = f"auth/token --user {user}"
-        return call(label, lambda: (0, f"tok-{user}"))
-
     if argv[:1] != ["api"]:
-        print("stub gh: only `gh api` and `gh auth token` are supported", file=sys.stderr)
+        print("stub gh: only `gh api` is supported", file=sys.stderr)
         return 1
     rest = argv[1:]
     while rest[:1] == ["--hostname"] and len(rest) > 1:

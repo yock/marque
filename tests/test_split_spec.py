@@ -104,7 +104,7 @@ class SplitSpecCase(unittest.TestCase):
         self.fixture[f"repos/{REPO_NAME}/issues/{number}/comments"] = [
             {"body": body, "user": {"login": "dev"}} for body in comments]
 
-    def run_split(self, *specs, fail=None, login=None):
+    def run_split(self, *specs, fail=None):
         self.fixture_path.write_text(json.dumps(self.fixture))
         env = {k: v for k, v in os.environ.items() if not k.startswith("SYMPHONY")}
         env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
@@ -114,8 +114,6 @@ class SplitSpecCase(unittest.TestCase):
             env["STUB_TEA_FAIL"] = fail
         cmd = [sys.executable, str(SPLIT), "--backend", "gitea", "--repo", REPO_NAME,
                "--state-dir", str(self.state)]
-        if login:
-            cmd += ["--login", login]
         cmd += list(specs)
         return subprocess.run(cmd, cwd=self.dir, capture_output=True, text=True, env=env)
 
@@ -185,10 +183,10 @@ class SeveralSpecsTest(SplitSpecCase):
 
 
 class RawApiTest(SplitSpecCase):
-    def test_reads_are_raw_sequential_and_carry_the_login(self):
+    def test_reads_are_raw_and_sequential(self):
         self.spec(18, "Spec: Thing", BODY, ["First comment.\n", None])
 
-        r = self.run_split("18", login="L")
+        r = self.run_split("18")
 
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = self.calls()
@@ -197,8 +195,6 @@ class RawApiTest(SplitSpecCase):
             f"repos/{REPO_NAME}/issues/18",
             f"repos/{REPO_NAME}/issues/18/comments?page=1&limit=50",
         ])
-        for c in lines:
-            self.assertIn("login=L", c)
 
 
 class LoudFailureTest(SplitSpecCase):

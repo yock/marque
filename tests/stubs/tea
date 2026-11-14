@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""A stub `tea` for the frontier tests. Only `tea api [--login L] PATH` exists.
+"""A stub `tea` for the frontier tests. Only `tea api PATH` exists.
 
 STUB_TEA_FIXTURE   a JSON object mapping a request key to its response. The key is
                    PATH without its query string, plus `?labels=X` when present.
                    `page=N` for N > 1 answers `[]`; a missing key answers
                    `{"message": "not found"}` with exit 0, as real tea does.
-STUB_TEA_LOG       a file to append `start PATH[ login=L]` / `end PATH[ login=L]`.
+STUB_TEA_LOG       a file to append `start PATH` / `end PATH`.
 STUB_TEA_FAIL      a substring of PATH; matching calls print to stderr and exit 1.
 
 While a call is open the stub holds `<log>.lock`; if it cannot create it, the log
@@ -40,14 +40,10 @@ def main(argv):
         print("stub tea: only `tea api` is supported", file=sys.stderr)
         return 1
     rest = argv[1:]
-    login = None
-    if rest[:1] == ["--login"] and len(rest) > 1:
-        login, rest = rest[1], rest[2:]
     if not rest:
         print("stub tea: api needs a path", file=sys.stderr)
         return 1
     path = rest[0]
-    tag = f" login={login}" if login else ""
 
     lock = None
     if os.environ.get("STUB_TEA_LOG"):
@@ -56,9 +52,9 @@ def main(argv):
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
         except FileExistsError:
             lock = None
-            log(f"OVERLAP {path}{tag}")
+            log(f"OVERLAP {path}")
 
-    log(f"start {path}{tag}")
+    log(f"start {path}")
     try:
         fail = os.environ.get("STUB_TEA_FAIL")
         if fail and fail in path:
@@ -68,7 +64,7 @@ def main(argv):
         print(json.dumps(response(path)))
         return 0
     finally:
-        log(f"end {path}{tag}")
+        log(f"end {path}")
         if lock:
             os.remove(lock)
 

@@ -2,7 +2,7 @@
 
 Gitea issues through the `tea` CLI. Tested by real runs. Paste the bullets that fill a gap into the project's Conventions; `<owner>/<repo>` and `<login>` are the project's.
 
-The scripts address it as `--backend gitea --repo <owner>/<repo> --login <tea login>` — the `tea` login name, passed to every `tea` call as `--login <login>`. Gitea shares one index sequence between issues and PRs, so `#42` names exactly one of them.
+The scripts address it as `--backend gitea --repo <owner>/<repo>` and read as `tea`'s default login. The commands below carry `--login <login>`, which picks the `tea` login they act as; Marque runs them as the doc writes them. Gitea shares one index sequence between issues and PRs, so `#42` names exactly one of them.
 
 - **List by label**: `tea issues ls --login <login> -o json -L "<label>" --state open`.
 - **Read an issue**: `tea issues <number> --login <login> --comments`; for raw markdown, `tea api --login <login> 'repos/<owner>/<repo>/issues/<number>'` and `.../issues/<number>/comments`.
@@ -16,4 +16,3 @@ The scripts address it as `--backend gitea --repo <owner>/<repo> --login <tea lo
 - **Open a PR**: `tea pulls create --login <login> --head marque-<number> --base <target> --title "<title>" --description "$(cat <path>)"`, the description carrying `Closes #<number>`.
 - **Merge a PR**: `tea pulls merge --login <login> <number>` (add `--style squash` to match the project's merge style).
 - **Read PR approval**: `tea api --login <login> 'repos/<owner>/<repo>/pulls/<number>/reviews' | jq '[.[] | select(.state == "APPROVED")] | length > 0'` — Gitea has no one-approval verdict, so count the approved reviews.
-- **Orchestrator identity**: a plain Conventions line `**Orchestrator identity**: --login <login>`; Marque passes it to every `tea` call, and the doc's other identity stays the planning one.

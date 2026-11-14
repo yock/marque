@@ -18,7 +18,7 @@ Comment on the ticket.
 
 Then the questions, numbered, each with a recommended answer, ending "reply 'all as recommended' or answer by number". Say what waits on it, checking the parent spec as well as the queue.
 
-Relabel `ready-for-agent` → `needs-info` through `triage-labels.md` (the canonical names if that file is absent), unassign, and set the ledger row to `needs-info`. The label and assignee commands are in `issue-tracker.md`, run as the orchestrator identity. In chat, name the ticket only.
+Relabel `ready-for-agent` → `needs-info` through `triage-labels.md` (the canonical names if that file is absent), unassign, and set the ledger row to `needs-info`. The label and assignee commands are in `issue-tracker.md`, run as written. In chat, name the ticket only.
 
 ## The answer signal
 

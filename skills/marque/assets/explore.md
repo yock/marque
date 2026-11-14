@@ -5,9 +5,9 @@ comment and gives the result to a read-only explorer.
 Placeholders:
   {{ISSUE}}         the ticket number
   {{MAIN_CHECKOUT}} the absolute path of the main checkout
-  {{READ_ISSUE}}    the tracker doc's **Read an issue** command, with the
-                    orchestrator's identity, the raw-markdown form where the
-                    doc gives one, and `<number>` left in for the explorer to
+  {{READ_ISSUE}}    the tracker doc's **Read an issue** command as the doc
+                    writes it, the raw-markdown form where the doc gives
+                    one, and `<number>` left in for the explorer to
                     substitute
   {{SPEC}}          the parent spec's number
   {{SPEC_DIR}}      the directory split_spec.py wrote that spec to

@@ -34,6 +34,10 @@ _Avoid_: settings, config, plan
 Instructions the developer adds at one of the orchestrator's fixed extension points, for a project or a machine. An extension may add to or tighten the orchestrator's method, never loosen it.
 _Avoid_: plugin, hook, override
 
+**Marque's account**:
+The tracker account Marque's writes act as: the one the tracker doc's commands name with an account flag, otherwise the CLI's signed-in account. Marque has no identity setting of its own.
+_Avoid_: orchestrator identity, bot identity
+
 **Orchestrator**:
 The agent that picks, briefs, dispatches, reviews, integrates, lands and closes implementation tickets, within its commission.
 _Avoid_: dispatcher, manager

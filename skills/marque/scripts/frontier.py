@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """frontier.py: the ready queue, ranked, from a tracker or from --tickets-json FILE.
 
-Usage: --backend gitea|github|gitlab|local --repo OWNER/NAME [--login L] [--host H],
+Usage: --backend gitea|github|gitlab|local --repo OWNER/NAME [--host H],
 or --tickets-json FILE. The tracker's facts arrive as flags; this script reads no
 config file and no environment. One input is required: a built-in backend (local
 reads the ticket files under `<repo>/issues/`, where `<repo>` is the feature
@@ -104,9 +104,6 @@ def parse_args(argv):
     ap.add_argument("--repo",
                     help="OWNER/NAME, or the feature directory for local (e.g. "
                          ".scratch/my-feature); required with --backend")
-    ap.add_argument("--login",
-                    help="tea login name / gh user / name of the env var holding the "
-                         "GitLab token")
     ap.add_argument("--host", help="the tracker host, for gh and glab (gitea ignores it)")
     ap.add_argument("--label", default="ready-for-agent", help="the queue's label")
     ap.add_argument("--waiting-label", default="needs-info",
@@ -237,7 +234,7 @@ def main(argv=None):
 
 def run(a):
     tracker = (TicketsJson.load(a.tickets_json) if a.tickets_json
-               else backend(a.backend, a.repo, a.login, a.host))
+               else backend(a.backend, a.repo, a.host))
     queue = tracker.open_issues(a.label)
     open_set = {i["number"] for i in tracker.open_issues()}
     by_number = {t["number"]: t for t in queue}

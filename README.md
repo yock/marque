@@ -61,7 +61,7 @@ Gitea is the only backend tested by real runs. GitHub, GitLab and the local `.sc
 
 ## Using it
 
-Invoke the skill — `/marque:marque` in Claude Code, or your harness's equivalent — and it starts with the commission: `skills/marque/reference/commission.md`. The commission checks the setup files, gap-checks the tracker doc against the operations Marque needs, settles identity and landing mode, and records every term in `plan.md`. Then the loop begins.
+Invoke the skill — `/marque:marque` in Claude Code, or your harness's equivalent — and it starts with the commission: `skills/marque/reference/commission.md`. The commission checks the setup files, gap-checks the tracker doc against the operations Marque needs, names the account Marque acts as, settles the landing mode and records every term in `plan.md`. Then the loop begins.
 
 Per-project overrides and extensions go in `docs/agents/marque.md`; per-user or per-machine ones in `~/.config/marque/marque.md`.
 

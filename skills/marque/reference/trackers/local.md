@@ -16,4 +16,3 @@ The scripts address it as `--backend local`. Each operation below is a file edit
 - **Open a PR**: not available; local mode lands directly.
 - **Merge a PR**: not available; local mode lands directly.
 - **Read PR approval**: not available; local mode lands directly.
-- **Orchestrator identity**: not available; local files have one author, so Marque follows the single-identity rules.

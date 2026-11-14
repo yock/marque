@@ -263,9 +263,8 @@ class GitLabLinksTest(BackendCase):
 
 
 class SequentialTest(BackendCase):
-    def test_github_calls_are_one_at_a_time_and_the_lists_come_first_after_login(self):
-        # With --login, `gh auth token` is the first call; then the two queues.
-        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
+    def test_github_calls_are_one_at_a_time_starting_with_the_two_lists(self):
+        r = self.run_frontier("github", github_fixture(QUEUE))
 
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = self.log.read_text().splitlines()
@@ -273,8 +272,7 @@ class SequentialTest(BackendCase):
         kinds = [line.split()[0] for line in lines]
         self.assertEqual(kinds, ["start", "end"] * (len(kinds) // 2))
         starts = [line.split()[1] for line in lines if line.startswith("start ")]
-        self.assertEqual(starts[0], "auth/token")
-        self.assertEqual(starts[1:3], [
+        self.assertEqual(starts[:2], [
             "repos/o/r/issues?state=open&labels=ready-for-agent&per_page=100&page=1",
             "repos/o/r/issues?state=open&per_page=100&page=1",
         ])
@@ -322,47 +320,8 @@ class GitHubParentTest(BackendCase):
         ])
 
 
-class IdentityTest(BackendCase):
-    def test_github_login_signs_every_api_call_and_never_puts_the_token_in_argv(self):
-        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot")
-
-        self.assertEqual(r.returncode, 0, r.stderr)
-        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
-        api = [ln for ln in starts if ln.split()[1].startswith("repos/")]
-        self.assertTrue(api)
-        self.assertTrue(all(ln.endswith(" token=tok-bot") for ln in api), api)
-        self.assertTrue(all("tok-bot" not in ln.split(" token=")[0] for ln in starts), starts)
-
-    def test_github_login_token_is_not_echoed_on_a_failure(self):
-        r = self.run_frontier("github", github_fixture(QUEUE), "--login", "bot",
-                              extra_env={"STUB_GH_FAIL": "blocked_by"})
-
-        self.assertEqual(r.returncode, 1)
-        self.assertNotIn("tok-bot", r.stderr)
-        self.assertNotIn("tok-bot", r.stdout)
-        self.assertIn("gh api", r.stderr)
-
-    def test_gitlab_login_names_the_variable_that_holds_the_token(self):
-        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
-                              "--login", "MARQUE_GITLAB_TOKEN",
-                              extra_env={"MARQUE_GITLAB_TOKEN": "glab-secret"})
-
-        self.assertEqual(r.returncode, 0, r.stderr)
-        starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]
-        self.assertTrue(starts)
-        self.assertTrue(all(ln.endswith(" token=glab-secret") for ln in starts), starts)
-        self.assertTrue(all("glab-secret" not in ln.split(" token=")[0] for ln in starts), starts)
-
-    def test_gitlab_login_names_an_unset_variable_and_fails_loudly(self):
-        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
-                              "--login", "MARQUE_GITLAB_TOKEN")
-
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(r.stdout, "")
-        self.assertIn("MARQUE_GITLAB_TOKEN", r.stderr)
-        self.assertNotIn("glab-secret", r.stderr)
-
-    def test_without_login_no_token_is_set(self):
+class NoTokenTest(BackendCase):
+    def test_marque_sets_no_token(self):
         gh = self.run_frontier("github", github_fixture(QUEUE))
         self.assertEqual(gh.returncode, 0, gh.stderr)
         gh_starts = [ln for ln in self.log.read_text().splitlines() if ln.startswith("start ")]

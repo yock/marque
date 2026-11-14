@@ -123,7 +123,6 @@ OPERATIONS = (
     "Open a PR",
     "Merge a PR",
     "Read PR approval",
-    "Orchestrator identity",
 )
 TRACKERS = ("github", "gitlab", "gitea", "local")
 
@@ -166,9 +165,8 @@ class CommissionReferenceTest(unittest.TestCase):
         self.assertIn("only with the developer's approval", text)
         self.assertIn("disagree", text)
 
-    def test_the_claims_differ_between_the_two_identity_cases(self):
+    def test_a_claim_outside_the_ledger_is_asked_about(self):
         text = (REFERENCE_DIR / "commission.md").read_text()
-        self.assertIn("claimed by a human: unassign to queue it", text)
         self.assertIn("yours, or orphaned?", text)
 
     def test_the_approval_term_is_impossible_on_the_approving_account(self):

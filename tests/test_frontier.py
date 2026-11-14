@@ -62,7 +62,7 @@ class FrontierCase(unittest.TestCase):
                 {"body": body, "user": {"login": "dev"}} for body in bodies]
         return raw
 
-    def run_frontier(self, *args, fail=None, login=None, label=None):
+    def run_frontier(self, *args, fail=None, label=None):
         self.fixture_path.write_text(json.dumps(self.fixture))
         env = {k: v for k, v in os.environ.items() if not k.startswith("SYMPHONY")}
         env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
@@ -71,8 +71,6 @@ class FrontierCase(unittest.TestCase):
         if fail:
             env["STUB_TEA_FAIL"] = fail
         cmd = [sys.executable, str(FRONTIER), "--backend", "gitea", "--repo", REPO_NAME]
-        if login:
-            cmd += ["--login", login]
         if label:
             cmd += ["--label", label]
         cmd += list(args)
@@ -227,7 +225,7 @@ class FrontierTest(FrontierCase):
         self.assertIn("#    6  fan   0  parent     -  c0  Free", r.stdout)
         self.assertNotIn("#    5  fan", r.stdout)
 
-    def test_json_prints_the_frontier_and_the_login_reaches_every_call(self):
+    def test_json_prints_the_frontier(self):
         self.issues(
             [{"number": 7, "title": "Child", "labels": ["ready-for-agent"],
               "body": "Part of #18", "comments": 2},
@@ -237,7 +235,7 @@ class FrontierTest(FrontierCase):
             comments={7: ["one", "two"]},
         )
 
-        r = self.run_frontier("--json", login="bot")
+        r = self.run_frontier("--json")
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout), [
@@ -245,7 +243,6 @@ class FrontierTest(FrontierCase):
             {"number": 8, "title": "Parentless", "fanout": 0, "parent": None, "comments": 0,
              "hand": []},
         ])
-        self.assertTrue(self.log.read_text().splitlines()[0].endswith(" login=bot"))
 
     def test_a_url_and_a_cross_repo_reference_are_reported_and_block(self):
         self.issues(

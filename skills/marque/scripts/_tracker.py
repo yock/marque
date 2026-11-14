@@ -14,7 +14,6 @@ has no such relation, [] means native and empty. A Ref is
 No CLI here: scripts import this module and own their own argument parsing.
 """
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -47,21 +46,16 @@ def _state(value):
 class _Backend:
     """What every backend shares: one call at a time, JSON only, a shape check."""
 
-    def __init__(self, repo, login=None, host=None):
+    def __init__(self, repo, host=None):
         self.repo = repo
-        self.login = login
         self.host = host
 
     def _cmd(self, path):
         raise NotImplementedError
 
-    def _env(self):
-        """The environment for a call; None inherits the caller's."""
-        return None
-
     def _fetch(self, cmd, expect):
         """Run `cmd` and return its JSON, refusing anything but the expected shape."""
-        r = subprocess.run(cmd, capture_output=True, text=True, env=self._env())
+        r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             raise TrackerError(cmd, (r.stderr.strip() or f"exit {r.returncode}")[:300])
         try:
@@ -85,11 +79,10 @@ class _Backend:
 
 
 class Gitea(_Backend):
-    """Gitea, through `tea api`. `login` names the `tea` login to use, when given."""
+    """Gitea, through `tea api`, as tea's default login."""
 
     def _cmd(self, path):
-        return (["tea", "api"] + (["--login", self.login] if self.login else [])
-                + [path])
+        return ["tea", "api", path]
 
     # --- issues -------------------------------------------------------------
     def open_issues(self, label=None):
@@ -155,38 +148,12 @@ PARENT_URL = re.compile(r"repos/([^/]+/[^/]+)/issues/(\d+)")
 
 
 class GitHub(_Backend):
-    """GitHub, through `gh api`. `login` names the gh user whose token signs every call."""
-
-    def __init__(self, repo, login=None, host=None):
-        super().__init__(repo, login, host)
-        self._token = None
+    """GitHub, through `gh api`, as gh's signed-in account."""
 
     # --- the one place a call is made --------------------------------------
     def _cmd(self, path):
         return (["gh", "api"] + (["--hostname", self.host] if self.host else [])
                 + [path])
-
-    def _env(self):
-        """Sign every call with the `--login` user's token, fetched once.
-
-        The token travels in the environment only: never in argv, never in an error.
-        """
-        if not self.login:
-            return None
-        if self._token is None:
-            cmd = ["gh", "auth", "token", "--user", self.login]
-            if self.host:
-                cmd += ["--hostname", self.host]
-            r = subprocess.run(cmd, capture_output=True, text=True)
-            if r.returncode != 0:
-                raise TrackerError(
-                    cmd, (r.stderr.strip() or f"exit {r.returncode}")[:300])
-            self._token = r.stdout.strip()
-        env = dict(os.environ)
-        env["GH_TOKEN"] = self._token
-        if self.host and self.host != "github.com":
-            env["GH_ENTERPRISE_TOKEN"] = self._token
-        return env
 
     # --- issues -------------------------------------------------------------
     def open_issues(self, label=None):
@@ -268,30 +235,12 @@ GRAPHQL_PARENT = (
 
 
 class GitLab(_Backend):
-    """GitLab, through `glab api`. `login` names the env var holding the token."""
+    """GitLab, through `glab api`, as glab's signed-in account."""
 
     # --- the one place a call is made --------------------------------------
     def _cmd(self, path):
         return (["glab", "api"] + (["--hostname", self.host] if self.host else [])
                 + [path])
-
-    def _env(self):
-        """Send the orchestrator's token, named by `login`, with every call.
-
-        glab has no per-call user: the token travels in the environment only, never
-        in argv or an error message. `GITLAB_HOST` decides which host accepts it.
-        """
-        if not self.login:
-            return None
-        value = os.environ.get(self.login)
-        if not value:
-            raise TrackerError(["glab", "api"],
-                               f"--login names the variable {self.login}, which is not set")
-        env = dict(os.environ)
-        env["GITLAB_TOKEN"] = value
-        if self.host:
-            env["GITLAB_HOST"] = self.host
-        return env
 
     # --- issues -------------------------------------------------------------
     def open_issues(self, label=None):
@@ -408,8 +357,8 @@ class Local(_Backend):
     `wontfix`) closes it. `Blocked by:` names the gating tickets by number or title.
     """
 
-    def __init__(self, repo, login=None, host=None):
-        super().__init__(repo, login, host)
+    def __init__(self, repo):
+        super().__init__(repo)
         self._records_cache = None
 
     # --- issues -------------------------------------------------------------
@@ -630,14 +579,14 @@ class TicketsJson:
         return {"number": parent, "repo": None, "state": None, "raw": f"#{parent}"}
 
 
-def backend(name, repo, login=None, host=None):
-    """The tracker for `name`."""
+def backend(name, repo, host=None):
+    """The tracker for `name`. CLI backends run as the CLI's signed-in account."""
     if name == "gitea":
-        return Gitea(repo, login)
+        return Gitea(repo)
     if name == "github":
-        return GitHub(repo, login, host)
+        return GitHub(repo, host)
     if name == "gitlab":
-        return GitLab(repo, login, host)
+        return GitLab(repo, host)
     if name == "local":
         return Local(repo)
     raise TrackerError(["tea", "api"], f"{name} is not built yet")

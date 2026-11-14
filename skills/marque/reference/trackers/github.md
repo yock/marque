@@ -2,7 +2,7 @@
 
 GitHub issues through the `gh` CLI. Best-effort until dogfooded. Paste the bullets that fill a gap into the project's Conventions; `<owner>/<repo>` and `<login>` are the project's.
 
-The scripts address it as `--backend github --repo <owner>/<repo> --login <gh user>`. Marque runs each `gh` call as that user by fetching the token once — `GH_TOKEN=$(gh auth token --user <login>) gh …` — and never touches `gh auth switch`, so the developer's own `gh` session is left alone.
+The scripts address it as `--backend github --repo <owner>/<repo> [--host <host>]`. Every `gh` call runs as `gh`'s signed-in account: choosing that account is the developer's business, and Marque never switches it.
 
 - **List by label**: `gh issue list --state open --label "<label>" --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name]}]'`.
 - **Read an issue**: `gh issue view <number> --json number,title,body,labels,comments`; `gh api repos/<owner>/<repo>/issues/<number>` for the raw body markdown.
@@ -16,4 +16,3 @@ The scripts address it as `--backend github --repo <owner>/<repo> --login <gh us
 - **Open a PR**: `gh pr create --head marque-<number> --base <target> --title "<title>" --body-file <path>`, the body carrying `Closes #<number>`.
 - **Merge a PR**: `gh pr merge <number> --merge` (or `--squash`, matching the project's merge style).
 - **Read PR approval**: `gh pr view <number> --json reviewDecision,reviews` — approved when `reviewDecision` is `APPROVED`.
-- **Orchestrator identity**: a plain Conventions line `**Orchestrator identity**: GH_TOKEN=<bot token>`; Marque passes it per call as above, and the doc's other identity stays the planning one.

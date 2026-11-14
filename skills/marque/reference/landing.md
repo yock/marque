@@ -32,7 +32,7 @@ scripts/land.py direct --issue N --branch marque-N \
   --close-cmd '<issue-tracker.md’s Close: $MARQUE_ISSUE is the number>'
 ```
 
-The two commands come from the tracker doc and run as the orchestrator identity. Exit 0 means landed. Exit 3 is a failed precondition: fix it and re-run, nothing has changed. Exit 1 is a failed step mid-landing: fix the cause and re-run the same command, which resumes.
+The two commands come from the tracker doc and run as written. Exit 0 means landed. Exit 3 is a failed precondition: fix it and re-run, nothing has changed. Exit 1 is a failed step mid-landing: fix the cause and re-run the same command, which resumes.
 
 The resolution comment goes on the ticket, in the format learned from recent tickets, and names any follow-ups. After the merge, confirm the tracker closed the ticket; close it yourself if it didn't.
 

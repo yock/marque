@@ -2,7 +2,7 @@
 
 GitLab issues through the `glab` CLI. Best-effort until dogfooded. Paste the bullets that fill a gap into the project's Conventions; `<group>/<project>` and `<login>` are the project's. GitLab calls comments "notes" and pull requests "merge requests".
 
-The scripts address it as `--backend gitlab --repo <group>/<project> --login <ENV_VAR> [--host <host>]`, where `<ENV_VAR>` names the environment variable holding the orchestrator's token; Marque passes it to each call as `GITLAB_TOKEN`. `--host` is for self-managed GitLab.
+The scripts address it as `--backend gitlab --repo <group>/<project> [--host <host>]`; `--host` is for self-managed GitLab. Every `glab` call runs as `glab`'s signed-in account: choosing that account is the developer's business, and Marque never switches it.
 
 - **List by label**: `glab issue list --opened --label "<label>" -F json`.
 - **Read an issue**: `glab issue view <number> --comments`; `glab api projects/:id/issues/<number>` for the raw description markdown.
@@ -16,4 +16,3 @@ The scripts address it as `--backend gitlab --repo <group>/<project> --login <EN
 - **Open a PR**: `glab mr create --source-branch marque-<number> --target-branch <target> --title "<title>" --description "$(cat <path>)"`, the description carrying `Closes #<number>`.
 - **Merge a PR**: `glab mr merge <number> --yes` (or `--squash`, matching the project's merge style).
 - **Read PR approval**: `glab api projects/:id/merge_requests/<number>/approvals | jq -e '.approved'` (approvals are a Premium feature).
-- **Orchestrator identity**: a plain Conventions line `**Orchestrator identity**: GITLAB_TOKEN=<ENV_VAR name>`; Marque passes the variable per call, and the doc's other identity stays the planning one.

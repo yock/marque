@@ -27,9 +27,6 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--backend", required=True, choices=BACKENDS)
     ap.add_argument("--repo", required=True, help="OWNER/NAME")
-    ap.add_argument("--login",
-                    help="tea login name / gh user / name of the env var holding the "
-                         "GitLab token")
     ap.add_argument("--host", help="the tracker host, for gh and glab (gitea ignores it)")
     ap.add_argument("--state-dir", required=True, help="the state directory to write under")
     ap.add_argument("spec", nargs="+", type=int)
@@ -61,7 +58,7 @@ def write_spec(n, issue, comments, root):
 
 def split(a):
     """Split each spec, in the order given; stop at the first one that fails."""
-    tracker = backend(a.backend, a.repo, a.login, a.host)
+    tracker = backend(a.backend, a.repo, a.host)
     root = Path(a.state_dir)
     for n in a.spec:
         issue = tracker.issue(n)

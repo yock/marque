@@ -1,6 +1,6 @@
 # Commission
 
-Agree the commission with the developer **before the first ticket**, and record it in `plan.md` (in the state dir). It settles what the tracker's doc must cover, which identity Marque acts as, how finished tickets land, and which extensions apply. Nine steps, in order; the first can end it.
+Agree the commission with the developer **before the first ticket**, and record it in `plan.md` (in the state dir). It settles what the tracker's doc must cover, which account Marque acts as, how finished tickets land, and which extensions apply. Nine steps, in order; the first can end it.
 
 ## 1. Setup check
 
@@ -18,7 +18,7 @@ List these to the developer:
 
 ## 3. Tracker gap-check
 
-`issue-tracker.md` is where tracker facts live; the scripts take them as `--backend`, `--repo`, `--login` and `--host`. Read the doc, then check it against each operation Marque needs. Settle the landing mode (step 5) first if the developer hasn't named it: the **pr** rows apply only in `pr` mode, and **Read PR approval** only with "the developer approves".
+`issue-tracker.md` is where tracker facts live; the scripts take them as `--backend`, `--repo` and `--host`. Read the doc, then check it against each operation Marque needs. Settle the landing mode (step 5) first if the developer hasn't named it: the **pr** rows apply only in `pr` mode, and **Read PR approval** only with "the developer approves".
 
 | Operation | Needed for |
 |---|---|
@@ -34,25 +34,18 @@ List these to the developer:
 | Open a PR | `pr` mode |
 | Merge a PR | `pr` mode |
 | Read PR approval | `pr` mode with "the developer approves" |
-| Orchestrator identity | optional: Marque's identity |
 
 For a gap, open the project's tracker snippet — `reference/trackers/github.md`, `reference/trackers/gitlab.md`, `reference/trackers/gitea.md` or `reference/trackers/local.md` — take the smallest plain convention it offers, show it, and add it to the doc's Conventions **only with the developer's approval**. It reads as one plain convention bullet, never a Marque-branded section. A tracker outside those four works if its doc covers the same operations.
 
 **Live check:** run the doc's read-only commands once on a real ticket — **Blocking** and **Count open blockers** on one ticket will do. Where the doc and the live tracker disagree, say so and offer the doc the fix. A doc claiming Gitea has no native dependencies while the tracker returns one is the case to expect.
 
-## 4. Identity
+## 4. Marque's account
 
-Two identities are recommended and one is fully supported. Mention the two-identity setup once, as an option; never require it.
+Marque has no identity setting of its own. It runs the tracker doc's commands exactly as written, account flags included (such as `tea --login <name>`), and never adds, strips or rewrites one. The scripts read as the CLI's signed-in or default account. Never switch or log in the CLI's account.
 
-- **Two identities:** the Conventions hold a plain line, `**Orchestrator identity**: --login <bot>` (`tea`) or a `GH_TOKEN=…` / `GITLAB_TOKEN=…` prefix (`gh`/`glab`). Marque acts as it for every command; the doc's other identity is the planning one. The tracker snippet maps it to the scripts' `--login`.
-- **One identity:** Marque acts as the doc's single identity and says so once. It starts every comment and ticket body it writes with `> *Posted by Marque.*`. On first run, offer the orchestrator-identity line once as an optional gap fix, not a nag.
+Say once which account the doc's write commands act as: the one their account flag names, otherwise the CLI's signed-in or default account. That is **Marque's account**. If the scripts read as a different account, say that too. Leave any account flag or `**Orchestrator identity**` line in the doc as it is, and offer no change to it. Marque starts every comment and ticket body it writes with `> *Posted by Marque.*`.
 
-Never `auth switch`.
-
-**Claims.** A `ready-for-agent` ticket is claimed by assigning it to Marque's identity, with a ledger row.
-
-- **Two identities:** assigned to anyone but Marque's identity, the ticket is reported at pick — "claimed by a human: unassign to queue it" — and never taken over. Assigned to Marque's identity with no ledger row is an orphan, recovered as usual.
-- **One identity:** the ledger decides. Assigned **with** a ledger row is Marque's claim. Assigned **without** one, report "assigned to the shared identity, not in my ledger: yours, or orphaned?" and neither take it nor unassign it until the developer answers.
+**Claims.** A `ready-for-agent` ticket is claimed by assigning it to Marque's account, with a ledger row. The ledger decides: assigned **with** a ledger row is Marque's claim. Assigned **without** one, report "assigned, not in my ledger: yours, or orphaned?" and neither take it nor unassign it until the developer answers.
 
 ## 5. Terms
 
@@ -78,10 +71,7 @@ Landing terms beyond the block — the target branch, the modes and their safegu
 
 ## 6. `pr` with "the developer approves"
 
-**Read PR approval** was gap-checked in step 3. Now decide whether the term is possible: Marque's identity must differ from the developer's approving account.
-
-- **Two identities:** they differ, so the term stands. While a PR waits for approval the ledger reads `awaiting-approval`.
-- **One identity:** ask whether that identity is also the account that approves. If yes, the term is **impossible** — an account can't approve its own PR. Offer the two-identity setup, or have the orchestrator merge once the checks pass.
+**Read PR approval** was gap-checked in step 3. Now decide whether the term is possible: Marque's account must differ from the account that approves. Ask whether it does. If Marque's account is also the approving account, the term is **impossible**: an account can't approve its own PR. Offer having the orchestrator merge once the checks pass. Otherwise the term stands, and while a PR waits for approval the ledger reads `awaiting-approval`.
 
 ## 7. Shared machine
 
