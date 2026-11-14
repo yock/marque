@@ -128,13 +128,30 @@ def do_merge(a):
     return git(a.repo, "rev-parse", "HEAD")
 
 
-def run_tracker(a, cmd):
+def tracker_env(a):
     env = dict(os.environ)
     env["MARQUE_ISSUE"] = str(a.issue)
     env["MARQUE_RESOLUTION"] = str(a.resolution)
-    r = subprocess.run(cmd, shell=True, cwd=str(a.repo), env=env)
+    return env
+
+
+def run_tracker(a, cmd):
+    r = subprocess.run(cmd, shell=True, cwd=str(a.repo), env=tracker_env(a))
     if r.returncode != 0:
         raise StepError("the tracker command %r exited %d" % (cmd, r.returncode))
+
+
+def tracker_ok(a, cmd):
+    """Run a tracker command quietly; True when it exits 0."""
+    r = subprocess.run(
+        cmd,
+        shell=True,
+        cwd=str(a.repo),
+        env=tracker_env(a),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return r.returncode == 0
 
 
 def clean_up(a):
@@ -340,6 +357,105 @@ def check(a):
     return 0
 
 
+def find_merge(a):
+    """The PR's merge commit on <remote>/<target>, or None when it is not merged there."""
+    remote_target = "%s/%s" % (a.remote, a.target)
+    if a.merge_commit:
+        return a.merge_commit if is_ancestor(a.repo, a.merge_commit, remote_target) else None
+    tip = git(a.repo, "rev-parse", a.branch)
+    if not is_ancestor(a.repo, tip, remote_target):
+        return None
+    path = git(
+        a.repo, "rev-list", "--first-parent", "--ancestry-path", "%s..%s" % (tip, remote_target)
+    )
+    # rev-list prints newest first, so the last line is the oldest commit on the
+    # target's first-parent line that contains the branch tip: the merge commit.
+    # An empty range means a fast-forward, where the tip itself is the merge.
+    return path.splitlines()[-1] if path else tip
+
+
+def finish(a):
+    """Confirm the PR's merge on the remote, then close, comment and clean up."""
+    issue = str(a.issue)
+    if ledger_field(a.state_dir, issue, "state") == "landed":
+        hash_ = ledger_field(a.state_dir, issue, "landed")
+        print("landed #%s %s" % (issue, hash_))
+        return 0
+    fails = repo_on_target_clean(a)
+    if fails:
+        for failure in fails:
+            print("land.py: precondition failed: %s" % failure, file=sys.stderr)
+        return 3
+    journal_path = Path(a.state_dir) / "landing" / ("%s.finish.log" % issue)
+    if journal_path.exists():
+        return finish_steps(a, Journal(journal_path))
+    # A fresh run: the merge must be confirmed before anything at all changes.
+    if a.merge_style == "squash" and not a.merge_commit:
+        print(
+            "land.py: precondition failed: a squash-merged PR needs --merge-commit",
+            file=sys.stderr,
+        )
+        return 3
+    try:
+        git(a.repo, "fetch", a.remote)
+        hash_ = find_merge(a)
+    except (StepError, OSError) as e:
+        print("land.py: step failed: %s" % e, file=sys.stderr)
+        return 1
+    if hash_ is None:
+        print(
+            "land.py: precondition failed: the PR for #%s is not merged on %s/%s"
+            % (issue, a.remote, a.target),
+            file=sys.stderr,
+        )
+        return 3
+    try:
+        set_ledger(a.state_dir, issue, "landing")
+    except StepError as e:
+        print("land.py: step failed: %s" % e, file=sys.stderr)
+        return 1
+    journal_path.parent.mkdir(parents=True, exist_ok=True)
+    journal_path.write_text("")
+    journal = Journal(journal_path)
+    journal.record("confirmed", hash_)
+    crash("confirmed")
+    return finish_steps(a, journal)
+
+
+def finish_steps(a, journal):
+    """Run every finish step not yet in the journal, in order; return the exit code."""
+    issue = str(a.issue)
+    try:
+        hash_ = journal.get("confirmed")
+        if not journal.has("synced"):
+            git(a.repo, "merge", "--ff-only", "%s/%s" % (a.remote, a.target))
+            journal.record("synced")
+            crash("synced")
+        if not journal.has("closed"):
+            # The tracker's keyword may have closed the ticket on `confirmed`;
+            # ask it first, so the close command is not run twice.
+            if not (a.is_closed_cmd and tracker_ok(a, a.is_closed_cmd)):
+                run_tracker(a, a.close_cmd)
+            journal.record("closed")
+            crash("closed")
+        if not journal.has("commented"):
+            run_tracker(a, a.comment_cmd)
+            journal.record("commented")
+            crash("commented")
+        if not journal.has("cleaned"):
+            clean_up(a)
+            journal.record("cleaned")
+            crash("cleaned")
+        # The merge is on origin and every step, clean-up included, is done.
+        set_ledger(a.state_dir, issue, "landed", landed=hash_)
+        journal.path.unlink()
+    except (StepError, OSError) as e:
+        print("land.py: step failed: %s" % e, file=sys.stderr)
+        return 1
+    print("landed #%s %s" % (issue, hash_))
+    return 0
+
+
 def add_pr_common(p):
     p.add_argument("--issue", required=True, metavar="N", help="the ticket's number")
     p.add_argument("--branch", required=True, metavar="B", help="the ticket's branch")
@@ -391,6 +507,27 @@ def parse_args(argv):
         action="store_true",
         help="the developer approves the PR; the ledger says awaiting-approval",
     )
+
+    p = sub.add_parser(
+        "finish",
+        help="confirm the pull request merged, then sync, close, comment and clean up",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="exit codes: 0 landed, 3 a precondition failed, 1 a step failed mid-landing",
+    )
+    add_pr_common(p)
+    p.add_argument("--comment-cmd", required=True, metavar="CMD", help="posts the resolution comment")
+    p.add_argument("--close-cmd", required=True, metavar="CMD", help="closes the ticket")
+    p.add_argument(
+        "--is-closed-cmd",
+        metavar="CMD",
+        help="exits 0 when the tracker already closed the ticket, so close is skipped",
+    )
+    p.add_argument(
+        "--merge-commit",
+        metavar="HASH",
+        help="the PR's merge commit; required after a squash merge",
+    )
+    p.add_argument("--merge-style", choices=["no-ff", "squash"], default="no-ff")
     return ap.parse_args(argv)
 
 
@@ -403,6 +540,8 @@ def main(argv=None):
         return land(a)
     if a.cmd == "check":
         return check(a)
+    if a.cmd == "finish":
+        return finish(a)
     return 2
 
 

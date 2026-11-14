@@ -397,6 +397,63 @@ def branch_tip(l):
     return sh("git", "rev-parse", BRANCH, cwd=l.repo)
 
 
+def finish(l, is_closed_cmd=None, merge_commit=None, merge_style=None, env=None):
+    cmd = [
+        sys.executable,
+        str(LAND),
+        "finish",
+        "--issue",
+        str(ISSUE),
+        "--branch",
+        BRANCH,
+        "--worktree",
+        str(l.wt),
+        "--target",
+        "master",
+        "--state-dir",
+        str(l.state),
+        "--resolution",
+        str(l.resolution),
+        "--comment-cmd",
+        l.comment_cmd(),
+        "--close-cmd",
+        l.close_cmd(),
+        "--repo",
+        str(l.repo),
+    ]
+    if is_closed_cmd is not None:
+        cmd += ["--is-closed-cmd", is_closed_cmd]
+    if merge_commit is not None:
+        cmd += ["--merge-commit", merge_commit]
+    if merge_style is not None:
+        cmd += ["--merge-style", merge_style]
+    return subprocess.run(cmd, capture_output=True, text=True, env=landing_env(env))
+
+
+def merge_pr(l, squash=False):
+    """The developer merges the PR on origin from a third clone; return the hash."""
+    other = l.root / "merger"
+    sh("git", "clone", "--quiet", str(l.origin), str(other), cwd=l.root)
+    sh("git", "config", "user.name", "Merger", cwd=other)
+    sh("git", "config", "user.email", "merger@example.com", cwd=other)
+    if squash:
+        sh("git", "merge", "--squash", "origin/%s" % BRANCH, cwd=other)
+        sh("git", "commit", "--quiet", "-m", "Merge pull request #1", cwd=other)
+    else:
+        sh(
+            "git",
+            "merge",
+            "--no-ff",
+            "--quiet",
+            "-m",
+            "Merge pull request #1",
+            "origin/%s" % BRANCH,
+            cwd=other,
+        )
+    sh("git", "push", "--quiet", "origin", "master", cwd=other)
+    return sh("git", "rev-parse", "HEAD", cwd=other)
+
+
 class CheckTest(unittest.TestCase):
     def test_check_pushes_the_branch_and_holds_the_ticket_for_landing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -440,12 +497,75 @@ class CheckTest(unittest.TestCase):
             self.assertNotEqual(ledger("get", "7", state=l.state).returncode, 0)
 
     def test_check_and_finish_help_exit_zero(self):
-        for args in (["check", "--help"],):
+        for args in (["check", "--help"], ["finish", "--help"]):
             with self.subTest(args=args):
                 r = subprocess.run(
                     [sys.executable, str(LAND), *args], capture_output=True, text=True
                 )
                 self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class FinishBeforeMergeTest(unittest.TestCase):
+    def test_finish_before_the_pr_is_merged_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l, await_approval=True).returncode, 0)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("the PR for #7 is not merged on origin/master", r.stderr)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertEqual(
+                ledger("get", "7", "state", state=l.state).stdout.strip(), "awaiting-approval"
+            )
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+            self.assertTrue(l.wt.exists())
+            self.assertFalse(l.calls.exists())
+
+
+class FinishAfterMergeTest(unittest.TestCase):
+    def test_finish_confirms_the_merge_then_closes_comments_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l, await_approval=True).returncode, 0)
+            merged = merge_pr(l)
+
+            r = finish(l, is_closed_cmd="exit 1")
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+            # The main checkout fast-forwards to the merge commit on origin.
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.repo), merged)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), merged)
+            # Close first, then the resolution comment.
+            self.assertEqual(
+                l.calls.read_text(),
+                "close 7\ncomment 7 Finished #7: the worktree adds two.\n",
+            )
+            self.assertFalse(l.wt.exists())
+            self.assertEqual(
+                sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                "",
+            )
+            # awaiting-approval was cleared on the way to landed.
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+
+
+class AlreadyClosedTest(unittest.TestCase):
+    def test_a_ticket_the_tracker_already_closed_gets_only_the_comment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            merge_pr(l)
+
+            r = finish(l, is_closed_cmd="exit 0")
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(l.calls.read_text(), "comment 7 Finished #7: the worktree adds two.\n")
 
 
 if __name__ == "__main__":
