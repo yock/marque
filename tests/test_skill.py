@@ -267,3 +267,115 @@ class ExtensionPointersTest(unittest.TestCase):
         text = SKILL.read_text()
         self.assertIsNone(re.search(r"^#+ .*Pacing", text, re.M))
         self.assertGreaterEqual(text.count("reference/extensions.md"), 5)
+
+
+# #33: the neutral verbs SKILL.md dispatches in, and the three harnesses the
+# reference maps them to.
+HARNESS_VERBS = (
+    "dispatch a background subagent",
+    "resume the same session",
+    "push a notification",
+    "run a background command that wakes you",
+)
+HARNESSES = ("OpenCode", "Claude Code", "Codex")
+
+
+class HarnessReferenceTest(unittest.TestCase):
+    def harnesses_md(self):
+        return (REFERENCE_DIR / "harnesses.md").read_text()
+
+    def test_every_verb_skill_md_uses_is_mapped_per_harness(self):
+        text = self.harnesses_md()
+        for verb in HARNESS_VERBS:
+            with self.subTest(verb=verb):
+                self.assertIn(verb, text)
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.assertIn(harness, text)
+
+    def test_the_degradations_and_the_permission_settings_are_named(self):
+        text = self.harnesses_md()
+        for marker in ("wait_agent", "alias", "additionalDirectories", "writable_roots"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_messaging_a_running_implementer_is_an_extra_not_core(self):
+        text = self.harnesses_md()
+        section = re.search(r"^#+ [^\n]*\bextras?\b[^\n]*\n(.*?)(?=^#+ |\Z)", text, re.M | re.S | re.I)
+        self.assertIsNotNone(section, "no heading names the per-harness extras")
+        self.assertIn("messaging a running implementer", section.group(1).lower())
+
+    def test_the_commission_points_at_the_permission_setup(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("reference/harnesses.md", text)
+
+    def test_the_harness_tools_stay_out_of_the_skill(self):
+        text = SKILL.read_text()
+        for name in (
+            "spawn_agent",
+            "send_input",
+            "wait_agent",
+            "resume_agent",
+            "additionalDirectories",
+            "writable_roots",
+            "write_stdin",
+        ):
+            with self.subTest(name=name):
+                self.assertNotIn(name, text)
+
+
+# #34: the operations lessons, reworded for any stack (#15's sorting test).
+PROJECT_SPECIFIC = (
+    "opus",
+    "ANSWERED",
+    "asked_marker",
+    "orch-<n>-recovery",
+    "flock",
+    "oomd",
+    "oomctl",
+    "battery",
+    "systemd",
+    "excess elements",
+    "C row",
+    "about half",
+)
+POSITIONAL_LESSON = (
+    "Positional constructs (row tables, tuples, positional constructor calls) "
+    "can merge cleanly and still be wrong. Two branches each add a field, and "
+    "one side's values land in the other side's fields. Check the merged order."
+)
+SHARED_MACHINE_LESSON = (
+    "Implementers and integration runs share one machine. If a project's full "
+    "suite is heavy, suites take turns. The project's `AGENTS.md` says how, and "
+    "the orchestrator's integration runs follow the same rule."
+)
+
+
+class OperationsReferenceTest(unittest.TestCase):
+    def operations_md(self):
+        return (REFERENCE_DIR / "operations.md").read_text()
+
+    def test_the_passing_lessons_name_no_stack_tool_or_machine(self):
+        text = self.operations_md()
+        for marker in PROJECT_SPECIFIC:
+            with self.subTest(marker=marker):
+                self.assertNotIn(marker, text)
+        self.assertIsNone(re.search(r"\bmain\b", text))
+
+    def test_the_operations_name_their_state_scripts_and_neighbours(self):
+        text = self.operations_md()
+        for marker in (
+            "orchestrator",
+            "marque-<n>-recovery",
+            "target branch",
+            "docs/agents/marque.md",
+            "ledger.py",
+            "reference/landing.md",
+            "reference/extensions.md",
+            "stall hour",
+            "default 1 hour",
+            POSITIONAL_LESSON,
+            SHARED_MACHINE_LESSON,
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
