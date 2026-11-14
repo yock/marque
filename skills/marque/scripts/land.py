@@ -342,6 +342,7 @@ def check(a):
             print("land.py: precondition failed: %s" % failure, file=sys.stderr)
         return 3
     try:
+        tip = git(a.repo, "rev-parse", a.branch)
         # A plain push, never forced. It is idempotent, so a re-run after a crash
         # is safe; check keeps no journal.
         git(a.repo, "push", a.remote, a.branch)
@@ -353,7 +354,7 @@ def check(a):
     except (StepError, OSError) as e:
         print("land.py: step failed: %s" % e, file=sys.stderr)
         return 1
-    print("pushed #%s %s" % (issue, git(a.repo, "rev-parse", a.branch)))
+    print("pushed #%s %s" % (issue, tip))
     return 0
 
 
