@@ -1,0 +1,158 @@
+"""land.py's CLI against temporary git repos with a bare origin."""
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+LAND = REPO / "skills" / "marque" / "scripts" / "land.py"
+LEDGER = REPO / "skills" / "marque" / "scripts" / "ledger.py"
+
+ISSUE = 7
+BRANCH = "orch-7"
+GIST = "Add the two"
+RESOLUTION_TEXT = "Finished #7: the worktree adds two.\n"
+
+
+def sh(*args, cwd):
+    r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)
+    if r.returncode != 0:
+        raise AssertionError("%s failed: %s%s" % (" ".join(args), r.stdout, r.stderr))
+    return r.stdout.strip()
+
+
+def ledger(*args, state):
+    return subprocess.run(
+        [sys.executable, str(LEDGER), "--state-dir", str(state), *args],
+        capture_output=True,
+        text=True,
+    )
+
+
+class Landing:
+    """A bare origin, a main checkout, a ticket worktree and the landing inputs."""
+
+    def comment_cmd(self):
+        return 'echo "comment $MARQUE_ISSUE $(cat "$MARQUE_RESOLUTION")" >> %s' % shlex.quote(
+            str(self.calls)
+        )
+
+    def close_cmd(self):
+        return 'echo "close $MARQUE_ISSUE" >> %s' % shlex.quote(str(self.calls))
+
+
+def make_landing(tmp):
+    l = Landing()
+    l.root = Path(tmp)
+    l.origin = l.root / "origin.git"
+    l.repo = l.root / "repo"
+    l.wt = l.root / "wt"
+    l.state = l.root / "state"
+    l.resolution = l.root / "resolution.md"
+    l.suite = l.root / "suite.log"
+    l.calls = l.root / "calls"
+
+    sh("git", "init", "--bare", "--quiet", str(l.origin), cwd=l.root)
+    sh("git", "clone", "--quiet", str(l.origin), str(l.repo), cwd=l.root)
+    sh("git", "config", "user.name", "Landing Test", cwd=l.repo)
+    sh("git", "config", "user.email", "landing@example.com", cwd=l.repo)
+    sh("git", "checkout", "--quiet", "-b", "master", cwd=l.repo)
+    (l.repo / "numbers.txt").write_text("one\n")
+    sh("git", "add", "numbers.txt", cwd=l.repo)
+    sh("git", "commit", "--quiet", "-m", "Start with one", cwd=l.repo)
+    sh("git", "push", "--quiet", "origin", "master", cwd=l.repo)
+
+    sh("git", "worktree", "add", "--quiet", "-b", BRANCH, str(l.wt), "master", cwd=l.repo)
+    (l.wt / "numbers.txt").write_text("one\ntwo\n")
+    sh("git", "commit", "--quiet", "-am", GIST, cwd=l.wt)
+
+    # The suite log must post-date the branch tip; commit times are whole seconds,
+    # so put the log a minute into the future rather than racing the clock.
+    l.suite.write_text("OK 12 tests\n")
+    tip_time = int(sh("git", "log", "-1", "--format=%ct", cwd=l.wt))
+    os.utime(l.suite, (tip_time + 60, tip_time + 60))
+
+    l.resolution.write_text(RESOLUTION_TEXT)
+    l.state.mkdir()
+    return l
+
+
+def land(l, env=None, merge_style=None, comment_cmd=None, close_cmd=None):
+    e = {k: v for k, v in os.environ.items() if k != "MARQUE_LAND_CRASH_AFTER"}
+    e.update(env or {})
+    cmd = [
+        sys.executable,
+        str(LAND),
+        "direct",
+        "--issue",
+        str(ISSUE),
+        "--branch",
+        BRANCH,
+        "--worktree",
+        str(l.wt),
+        "--target",
+        "master",
+        "--gist",
+        GIST,
+        "--state-dir",
+        str(l.state),
+        "--suite-green",
+        str(l.suite),
+        "--resolution",
+        str(l.resolution),
+        "--comment-cmd",
+        comment_cmd if comment_cmd is not None else l.comment_cmd(),
+        "--close-cmd",
+        close_cmd if close_cmd is not None else l.close_cmd(),
+        "--repo",
+        str(l.repo),
+    ]
+    if merge_style is not None:
+        cmd += ["--merge-style", merge_style]
+    return subprocess.run(cmd, capture_output=True, text=True, env=e)
+
+
+class HelpTest(unittest.TestCase):
+    def test_help_and_direct_help_exit_zero(self):
+        for args in (["--help"], ["direct", "--help"]):
+            with self.subTest(args=args):
+                r = subprocess.run(
+                    [sys.executable, str(LAND), *args], capture_output=True, text=True
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class HappyPathTest(unittest.TestCase):
+    def test_direct_lands_the_ticket_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            tip = sh("git", "rev-parse", "master", cwd=l.origin)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % tip)
+
+            # --no-ff: a merge commit with two parents, and the message from the brief.
+            self.assertEqual(
+                sh("git", "log", "-1", "--format=%s", "master", cwd=l.origin),
+                "Merge #7: Add the two",
+            )
+            parents = sh("git", "log", "-1", "--format=%P", "master", cwd=l.origin).split()
+            self.assertEqual(len(parents), 2)
+
+            self.assertEqual(
+                l.calls.read_text(),
+                "comment 7 Finished #7: the worktree adds two.\nclose 7\n",
+            )
+            self.assertFalse(l.wt.exists())
+            self.assertEqual(sh("git", "branch", "--list", BRANCH, cwd=l.repo), "")
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
+            self.assertFalse((l.state / "landing" / "7.log").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
