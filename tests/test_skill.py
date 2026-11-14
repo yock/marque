@@ -153,6 +153,28 @@ class CommissionReferenceTest(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+        self.assertIn("stall hour", text.lower())
+
+    def test_the_gap_check_lists_every_operation(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for operation in OPERATIONS:
+            with self.subTest(operation=operation):
+                self.assertIn(operation, text)
+
+    def test_the_gap_check_writes_only_with_approval_and_reports_a_disagreement(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("only with the developer's approval", text)
+        self.assertIn("disagree", text)
+
+    def test_the_claims_differ_between_the_two_identity_cases(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("claimed by a human: unassign to queue it", text)
+        self.assertIn("yours, or orphaned?", text)
+
+    def test_the_approval_term_is_impossible_on_the_approving_account(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("impossible", text)
+        self.assertIn("approve its own PR", text)
 
     def test_the_commission_names_marques_post_marker_and_approval_state(self):
         text = (REFERENCE_DIR / "commission.md").read_text()
