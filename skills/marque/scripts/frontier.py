@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""frontier.py --backend gitea|github|gitlab --repo OWNER/NAME [--login L] [--host H]
-[--json]: the ready queue, ranked.
+"""frontier.py: the ready queue, ranked, from a tracker or from --tickets-json FILE.
 
-The tracker's facts arrive as flags; this script reads no config file and no
-environment. The queue is the open issues carrying --label. A ticket is on the
-frontier when it is unassigned, does not carry --waiting-label, and every one of
-its blockers is closed.
+Usage: --backend gitea|github|gitlab|local --repo OWNER/NAME [--login L] [--host H],
+or --tickets-json FILE. The tracker's facts arrive as flags; this script reads no
+config file and no environment. One input is required: a built-in backend (local
+reads the ticket files under `<repo>/issues/`, where `<repo>` is the feature
+directory), or `--tickets-json` with a normalized ticket list for any other tracker.
+The queue is the open issues carrying --label. A ticket is on the frontier when it
+is unassigned, does not carry --waiting-label, and every one of its blockers is
+closed.
 
 Blockers and the parent are read native first, then from the body's `Blocked by:`
 line or `## Blocked by` section ("None…" means none) and its `## Parent` section
@@ -26,7 +29,27 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _tracker import BACKENDS, TrackerError, backend  # noqa: E402
+from _tracker import (  # noqa: E402
+    BACKENDS, TicketsJson, TicketsJsonError, TrackerError, backend)
+
+SCHEMA_HELP = """\
+--tickets-json FILE holds a JSON list of normalized tickets, one object each:
+  number         int            the ticket number (unique)
+  title          str
+  state          "open" | "closed"
+  labels         [str]
+  assignees      [str]
+  body           str            the description; body Blocked by / Part of forms are
+                                parsed from it
+  blockers       [int] or null  native blockers (same tracker); null = no native relation
+  parent         int or null    native parent; null = none (the body's Part of /
+                                ## Parent still apply)
+  newest_comment str or null    optional; the newest comment's text (for the questions
+                                check)
+
+Include the closed tickets that open tickets name as blockers: a blocker number the
+file does not have is reported as not found and treated as open. Unknown extra
+fields are ignored; a malformed file exits 1 and names the field."""
 
 TOP = re.compile(r"(?mi)^[ \t]*Blocked by:(.*)$")
 SECTION = re.compile(r"(?ms)^#{2,}[ \t]*Blocked by[ \t]*\n(.*?)(?=^#{2,} |\Z)")
@@ -69,9 +92,18 @@ class TicketReading:
 
 
 def parse_args(argv):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--backend", required=True, choices=BACKENDS)
-    ap.add_argument("--repo", required=True, help="OWNER/NAME")
+    ap = argparse.ArgumentParser(
+        description=__doc__.split("\n")[0], epilog=SCHEMA_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    source = ap.add_mutually_exclusive_group(required=True)
+    source.add_argument("--backend", choices=BACKENDS,
+                        help="the tracker to read: " + ", ".join(BACKENDS))
+    source.add_argument("--tickets-json", metavar="FILE",
+                        help="a JSON list of normalized tickets instead of a backend "
+                             "(the schema is below)")
+    ap.add_argument("--repo",
+                    help="OWNER/NAME, or the feature directory for local (e.g. "
+                         ".scratch/my-feature); required with --backend")
     ap.add_argument("--login",
                     help="tea login name / gh user / name of the env var holding the "
                          "GitLab token")
@@ -81,7 +113,12 @@ def parse_args(argv):
                     help="the label that means the user has been asked something")
     ap.add_argument("--json", action="store_true", help="print the frontier as JSON")
     ap.add_argument("--limit", type=int, default=30, help="frontier lines to print (default 30)")
-    return ap.parse_args(argv)
+    a = ap.parse_args(argv)
+    if a.backend and not a.repo:
+        ap.error("--repo is required with --backend")
+    if a.tickets_json and a.repo:
+        ap.error("--repo is not allowed with --tickets-json")
+    return a
 
 
 def declares_none(text):
@@ -188,6 +225,9 @@ def main(argv=None):
     a = parse_args(argv)
     try:
         text = run(a)
+    except TicketsJsonError as e:
+        print(f"frontier.py: --tickets-json: {e}", file=sys.stderr)
+        return 1
     except TrackerError as e:
         print(f"frontier.py: {' '.join(e.cmd)} failed: {e.reason}", file=sys.stderr)
         return 1
@@ -196,7 +236,8 @@ def main(argv=None):
 
 
 def run(a):
-    tracker = backend(a.backend, a.repo, a.login, a.host)
+    tracker = (TicketsJson.load(a.tickets_json) if a.tickets_json
+               else backend(a.backend, a.repo, a.login, a.host))
     queue = tracker.open_issues(a.label)
     open_set = {i["number"] for i in tracker.open_issues()}
     by_number = {t["number"]: t for t in queue}

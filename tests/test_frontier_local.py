@@ -77,6 +77,67 @@ def write_local(queue, root):
     return issues
 
 
+def tracker_view(t):
+    """One neutral ticket in tracker terms: state, labels and assignees from status."""
+    closed = t["status"] in ("resolved", "closed", "done", "wontfix")
+    claimed = t["status"] == "claimed"
+    return {
+        "state": "closed" if closed else "open",
+        "labels": [] if closed else [t["status"]],
+        "assignees": ["local"] if claimed else [],
+    }
+
+
+def body_line(blocked_by):
+    """The `Blocked by:` body form a tracker that has no native edges can carry."""
+    if blocked_by.lower().startswith("none"):
+        return ""
+    items = [f"#{int(i)}" if i.strip().isdigit() else i.strip()
+             for i in blocked_by.split(",")]
+    return "Blocked by: " + ", ".join(items)
+
+
+def write_tickets_json(queue, path):
+    """The queue as a normalized tickets JSON file."""
+    path.write_text(json.dumps([
+        {"number": t["number"], "title": t["title"], "state": tracker_view(t)["state"],
+         "labels": tracker_view(t)["labels"], "assignees": tracker_view(t)["assignees"],
+         "body": body_line(t["blocked_by"]), "blockers": None, "parent": None}
+        for t in queue]))
+    return path
+
+
+def gitea_fixture(queue):
+    """The queue in `tea api` shapes, with the blockers in the body and no native edges."""
+    raw = {}
+    for t in queue:
+        raw[t["number"]] = {
+            "number": t["number"], "title": t["title"], "state": tracker_view(t)["state"],
+            "body": body_line(t["blocked_by"]),
+            "labels": [{"name": x} for x in tracker_view(t)["labels"]],
+            "assignees": [{"login": x} for x in tracker_view(t)["assignees"]],
+            "comments": 0, "repository": {"full_name": REPO_NAME},
+        }
+    open_issues = [i for i in raw.values() if i["state"] == "open"]
+    fixture = {
+        f"repos/{REPO_NAME}/issues": open_issues,
+        f"repos/{REPO_NAME}/issues?labels={LABEL}": [
+            i for i in open_issues if LABEL in [lab["name"] for lab in i["labels"]]],
+    }
+    for number, issue in raw.items():
+        fixture[f"repos/{REPO_NAME}/issues/{number}"] = issue
+        fixture[f"repos/{REPO_NAME}/issues/{number}/dependencies"] = []
+    return fixture
+
+
+def ticket(**over):
+    """A minimal normalized ticket, valid unless a test overrides a field."""
+    t = {"number": 1, "title": "One", "state": "open", "labels": [LABEL],
+         "assignees": [], "body": "", "blockers": None, "parent": None}
+    t.update(over)
+    return t
+
+
 class LocalCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -96,15 +157,35 @@ class LocalCase(unittest.TestCase):
         return self.run_frontier(
             "--backend", "local", "--repo", FEATURE, *args, env=env, path=path)
 
+    def run_json(self, path, *args):
+        return self.run_frontier("--tickets-json", str(path), *args)
+
+    def run_gitea(self, fixture, *args):
+        fixture_path = self.dir / "tea-fixture.json"
+        fixture_path.write_text(json.dumps(fixture))
+        return self.run_frontier(
+            "--backend", "gitea", "--repo", REPO_NAME, *args,
+            path=str(STUBS) + os.pathsep + os.environ.get("PATH", ""),
+            env={"STUB_TEA_FIXTURE": str(fixture_path),
+                 "STUB_TEA_LOG": str(self.dir / "tea.log")})
+
 
 class LocalFrontierTest(LocalCase):
-    def test_the_queue_gives_the_hand_worked_frontier_from_local_files(self):
+    def test_the_queue_gives_the_same_frontier_through_local_json_and_gitea(self):
         write_local(QUEUE, self.dir)
+        tickets = write_tickets_json(QUEUE, self.dir / "tickets.json")
 
-        r = self.run_local()
+        local = self.run_local()
+        self.assertEqual(local.returncode, 0, local.stderr)
+        self.assertEqual(local.stdout, EXPECTED)
 
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout, EXPECTED)
+        handed = self.run_json(tickets)
+        self.assertEqual(handed.returncode, 0, handed.stderr)
+        self.assertEqual(handed.stdout, EXPECTED)
+
+        gitea = self.run_gitea(gitea_fixture(QUEUE))
+        self.assertEqual(gitea.returncode, 0, gitea.stderr)
+        self.assertEqual(gitea.stdout, EXPECTED)
 
     def test_plain_and_bold_status_lines_both_carry_the_triage_label(self):
         issues = write_local([], self.dir)
@@ -197,6 +278,19 @@ class LocalFrontierTest(LocalCase):
             "#    5  fan   0  parent     -  c0  Plain line",
         ])
 
+    def test_a_blocker_number_with_no_ticket_file_is_reported_and_treated_as_open(self):
+        issues = write_local([], self.dir)
+        (issues / "09-waits.md").write_text(
+            "# 09: Waits\n\n**Blocked by:** 03\n\n**Status:** ready-for-agent\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "READ BY HAND #9: reference #3 not found, treated as open\n"
+            "queue 1  frontier 0  externally blocked 1\n"
+            "externally blocked: #9<-#3\n"))
+
     def test_questions_under_the_comments_heading_need_the_waiting_label(self):
         issues = write_local([], self.dir)
         (issues / "09-asked.md").write_text(
@@ -209,6 +303,67 @@ class LocalFrontierTest(LocalCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("READ BY HAND #9: has questions but no needs-info label", r.stdout)
         self.assertIn("#    9  fan   0  parent     -  c1  Asked", r.stdout)
+
+
+class TicketsJsonTest(LocalCase):
+    def test_a_native_blocker_missing_from_the_file_is_reported_and_treated_as_open(self):
+        path = self.dir / "tickets.json"
+        path.write_text(json.dumps([ticket(number=4, blockers=[9])]))
+
+        r = self.run_json(path)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "READ BY HAND #4: reference #9 not found, treated as open\n"
+            "queue 1  frontier 0  externally blocked 1\n"
+            "externally blocked: #4<-#9\n"))
+
+    def test_a_malformed_tickets_json_names_the_field_and_exits_nonzero(self):
+        cases = {
+            "not a list": ({"number": 1}, "list"),
+            "missing labels": (
+                [{k: v for k, v in ticket().items() if k != "labels"}], "field 'labels'"),
+            "bad state": ([ticket(state="opened")], "field 'state'"),
+            "blockers not ints": ([ticket(blockers="3")], "field 'blockers'"),
+            "duplicate number": ([ticket(number=5), ticket(number=5)], "duplicate"),
+        }
+        for name, (data, named) in cases.items():
+            with self.subTest(case=name):
+                path = self.dir / "bad.json"
+                path.write_text(json.dumps(data))
+
+                r = self.run_json(path)
+
+                self.assertEqual(r.returncode, 1)
+                self.assertEqual(r.stdout, "")
+                self.assertIn("frontier.py: --tickets-json:", r.stderr)
+                self.assertIn(named, r.stderr)
+
+    def test_help_documents_the_tickets_json_schema(self):
+        r = subprocess.run([sys.executable, str(FRONTIER), "--help"],
+                           cwd=self.dir, capture_output=True, text=True)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for field in ("number", "title", "state", "labels", "assignees", "body",
+                      "blockers", "parent", "newest_comment"):
+            self.assertIn(field, r.stdout)
+
+    def test_the_backend_and_tickets_json_flags_are_mutually_exclusive(self):
+        path = write_tickets_json(QUEUE, self.dir / "tickets.json")
+
+        r = self.run_frontier("--backend", "local", "--repo", FEATURE,
+                              "--tickets-json", str(path))
+
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
+
+    def test_repo_is_not_allowed_with_tickets_json(self):
+        path = write_tickets_json(QUEUE, self.dir / "tickets.json")
+
+        r = self.run_frontier("--tickets-json", str(path), "--repo", REPO_NAME)
+
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(r.stdout, "")
 
 
 class NoTrackerCliTest(LocalCase):
