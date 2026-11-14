@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in Gitea (gitea.yock.dev, yock/symphony) via the `tea` CLI as `--login yockbot`. See `docs/agents/issue-tracker.md`.
+Issues live in Gitea (gitea.yock.dev, yock/symphony) via the `tea` CLI as the developer's account, `--login gitea.yock.dev`; the orchestrator acts as `--login yockbot` (see **Orchestrator identity** in `docs/agents/issue-tracker.md`).
 
 ### Triage labels
 
