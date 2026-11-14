@@ -137,6 +137,47 @@ class TrackerSnippetTest(unittest.TestCase):
                     self.assertIn(f"\n- **{operation}**", text)
 
 
+class CommissionReferenceTest(unittest.TestCase):
+    def test_the_commission_stops_when_the_setup_files_are_missing(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("docs/agents/issue-tracker.md", text)
+        self.assertIn("## Agent skills", text)
+        self.assertIn("`/setup-matt-pocock-skills`", text)
+
+    def test_the_commission_lists_the_defaults_and_their_one_override(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in (
+            "~/.local/share/marque/<repo-name>",
+            ".marque/worktrees",
+            "docs/agents/marque.md",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_commission_names_marques_post_marker_and_approval_state(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in ("Posted by Marque", "awaiting-approval"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_commission_writes_every_term_to_the_plan(self):
+        text = (REFERENCE_DIR / "commission.md").read_text().lower()
+        for term in (
+            "implementer model",
+            "authority",
+            "fallback",
+            "concurrency",
+            "paid compute",
+            "target branch",
+            "landing mode",
+            "approval cap",
+            "notifications",
+            "extensions",
+        ):
+            with self.subTest(term=term):
+                self.assertIn(term, text)
+
+
 class CommissionPointersTest(unittest.TestCase):
     def test_the_commission_points_at_every_tracker_snippet(self):
         text = (REFERENCE_DIR / "commission.md").read_text()

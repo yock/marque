@@ -1,0 +1,98 @@
+# Commission
+
+Agree the commission with the developer **before the first ticket**, and record it in `plan.md` (in the state dir). It settles what the tracker's doc must cover, which identity Marque acts as, how finished tickets land, and which extensions apply. Nine steps, in order; the first can end it.
+
+## 1. Setup check
+
+The setup files are `docs/agents/issue-tracker.md` and a `## Agent skills` block in `AGENTS.md` or `CLAUDE.md`. If either is missing, stop and say: **"Run `/setup-matt-pocock-skills` first."** Nothing else happens.
+
+## 2. Defaults
+
+List these to the developer:
+
+- **State dir:** `~/.local/share/marque/<repo-name>` — `plan.md`, `ledger.tsv`, `briefs/`, `specs/`, `logs/`, `landing/`.
+- **Worktrees:** `<repo>/.marque/worktrees/marque-<n>` on branch `marque-<n>`.
+- **Stall hour:** 1 hour.
+
+`docs/agents/marque.md` is the **only** place to override them; a term agreed in chat does not move them. Make sure `.marque/` is git-ignored: propose the line `.marque/` for `.git/info/exclude`, and write it once the developer approves.
+
+## 3. Tracker gap-check
+
+`issue-tracker.md` is where tracker facts live; the scripts take them as `--backend`, `--repo`, `--login` and `--host`. Read the doc, then check it against each operation Marque needs. Settle the landing mode (step 5) first if the developer hasn't named it: the **pr** rows apply only in `pr` mode, and **Read PR approval** only with "the developer approves".
+
+| Operation | Needed for |
+|---|---|
+| List by label | the queue |
+| Read an issue | explore, review |
+| Parent | the ticket's spec |
+| Blocking | edges between tickets |
+| Count open blockers | a quick check by hand |
+| Assign / unassign | the claim |
+| Comment | questions, resolution comments |
+| Apply / remove labels | `needs-info` and back |
+| Close | landing, and the close probe |
+| Open a PR | `pr` mode |
+| Merge a PR | `pr` mode |
+| Read PR approval | `pr` mode with "the developer approves" |
+| Orchestrator identity | optional: Marque's identity |
+
+For a gap, open the project's tracker snippet — `reference/trackers/github.md`, `reference/trackers/gitlab.md`, `reference/trackers/gitea.md` or `reference/trackers/local.md` — take the smallest plain convention it offers, show it, and add it to the doc's Conventions **only with the developer's approval**. It reads as one plain convention bullet, never a Marque-branded section. A tracker outside those four works if its doc covers the same operations.
+
+**Live check:** run the doc's read-only commands once on a real ticket — **Blocking** and **Count open blockers** on one ticket will do. Where the doc and the live tracker disagree, say so and offer the doc the fix. A doc claiming Gitea has no native dependencies while the tracker returns one is the case to expect.
+
+## 4. Identity
+
+Two identities are recommended and one is fully supported. Mention the two-identity setup once, as an option; never require it.
+
+- **Two identities:** the Conventions hold a plain line, `**Orchestrator identity**: --login <bot>` (`tea`) or a `GH_TOKEN=…` / `GITLAB_TOKEN=…` prefix (`gh`/`glab`). Marque acts as it for every command; the doc's other identity is the planning one. The tracker snippet maps it to the scripts' `--login`.
+- **One identity:** Marque acts as the doc's single identity and says so once. It starts every comment and ticket body it writes with `> *Posted by Marque.*`. On first run, offer the orchestrator-identity line once as an optional gap fix, not a nag.
+
+Never `auth switch`.
+
+**Claims.** A `ready-for-agent` ticket is claimed by assigning it to Marque's identity, with a ledger row.
+
+- **Two identities:** assigned to anyone but Marque's identity, the ticket is reported at pick — "claimed by a human: unassign to queue it" — and never taken over. Assigned to Marque's identity with no ledger row is an orphan, recovered as usual.
+- **One identity:** the ledger decides. Assigned **with** a ledger row is Marque's claim. Assigned **without** one, report "assigned to the shared identity, not in my ledger: yours, or orphaned?" and neither take it nor unassign it until the developer answers.
+
+## 5. Terms
+
+Agree every term with the developer and write this block to `plan.md`:
+
+```markdown
+## Commission
+
+- **Implementer model**: <model> (<variant>)
+- **Authority**: <land and close without asking? yes | no>
+- **Fallback**: <may the orchestrator implement once the retries run out? yes | no>
+- **Concurrency**: <n>
+- **Paid compute**: <on | off>, cap <amount>
+- **Target branch**: <branch> — the repo's default branch unless the developer names another
+- **Landing mode**: <direct | pr>
+- **Approval cap**: <n> — `pr` mode with "the developer approves"; default, the concurrency
+- **Merge style**: <--no-ff | squash> — from AGENTS.md; default, `--no-ff`
+- **Notifications**: <on | off>
+- **Extensions**: <the approved list>
+```
+
+Landing terms beyond the block — the target branch, the modes and their safeguards — are in `reference/landing.md`.
+
+## 6. `pr` with "the developer approves"
+
+**Read PR approval** was gap-checked in step 3. Now decide whether the term is possible: Marque's identity must differ from the developer's approving account.
+
+- **Two identities:** they differ, so the term stands. While a PR waits for approval the ledger reads `awaiting-approval`.
+- **One identity:** ask whether that identity is also the account that approves. If yes, the term is **impossible** — an account can't approve its own PR. Offer the two-identity setup, or have the orchestrator merge once the checks pass.
+
+## 7. Shared machine
+
+If the project's full suite looks heavy, ask whether its `AGENTS.md` says how suites take turns. Don't impose a lock: the integration runs follow whatever rule it states.
+
+## 8. Extensions
+
+List the active **commission**, **dispatch**, **brief**, **review** and **notify** extensions from `docs/agents/marque.md` and `~/.config/marque/marque.md`: one line each, plus the scripts each would run. The developer approves them as part of the commission, and they go under **Extensions** in `plan.md`. A mid-run change needs re-approval. → `reference/extensions.md`
+
+## 9. Harness permissions
+
+Before the first dispatch, check that the harness lets background implementers write to their worktrees and run the build without prompts. → `reference/harnesses.md`
+
+The commission is done when `plan.md` holds every term and the tracker doc covers every operation its landing mode needs. Then the loop begins.
