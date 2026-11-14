@@ -122,6 +122,14 @@ def main():
             allowed = ", ".join(state for state, _ in STATES)
             print(f"ledger.py: unknown state '{a.state}'; allowed: {allowed}", file=sys.stderr)
             raise SystemExit(2)
+        for field in FIELDS[2:]:
+            value = getattr(a, field)
+            if value is not None and ("\t" in value or "\n" in value):
+                print(
+                    f"ledger.py: --{field} value contains a tab or newline; refusing to write",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
         row = row_for(rows, a.n)
         if row is None:
             row = [""] * len(FIELDS)

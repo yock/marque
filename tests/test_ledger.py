@@ -120,6 +120,19 @@ class SetAndGetTest(unittest.TestCase):
                 self.assertIn(state, r.stderr)
             self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
 
+    def test_set_refuses_a_value_that_would_break_the_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            run("set", "5", "running", "--branch", "orch-5", state_dir=state_dir)
+            before = (state_dir / "ledger.tsv").read_bytes()
+
+            for value in ("a\tb", "a\nb"):
+                with self.subTest(value=value):
+                    r = run("set", "5", "review", "--note", value, state_dir=state_dir)
+
+                    self.assertEqual(r.returncode, 2)
+                    self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
+
 
 if __name__ == "__main__":
     unittest.main()
