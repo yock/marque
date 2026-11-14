@@ -20,12 +20,12 @@ Deliberately not done: unlimited fan-out, a batch merger agent, or defaulting to
 
 ## Install
 
-The public install address is the read-only GitHub mirror, `<owner>/marque`; development happens on Gitea at the [Issues](#issues) link below.
+The public install address is the read-only GitHub mirror, [`yock/marque`](https://github.com/yock/marque); development happens on Gitea at the [Issues](#issues) link below.
 
 **Claude Code:**
 
 ```sh
-/plugin marketplace add <owner>/marque
+/plugin marketplace add yock/marque
 /plugin install marque@marque
 ```
 
@@ -34,15 +34,15 @@ The skill appears as `/marque:marque`.
 **Codex:**
 
 ```sh
-codex plugin marketplace add <owner>/marque
+codex plugin marketplace add yock/marque
 # or, through skills.sh
-npx skills add <owner>/marque -a codex
+npx skills add yock/marque -a codex
 ```
 
 **OpenCode and other agents:**
 
 ```sh
-npx skills add <owner>/marque -a <agent>
+npx skills add yock/marque -a <agent>
 ```
 
 Add `-g` to install for every project rather than the current one.
@@ -88,8 +88,8 @@ Run the tests with `python3 -m unittest discover tests`.
 Releases are semver tags (`v0.1.0`, `v0.2.0`, …) with the version in `.claude-plugin/plugin.json`. Pin one with `@v0.1.0` on skills.sh and `#v0.1.0` in a Claude marketplace:
 
 ```sh
-npx skills add <owner>/marque@v0.1.0 -a codex
-/plugin marketplace add <owner>/marque#v0.1.0
+npx skills add yock/marque@v0.1.0 -a codex
+/plugin marketplace add yock/marque#v0.1.0
 ```
 
 Installing without a version follows the default branch.

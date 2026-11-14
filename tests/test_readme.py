@@ -24,7 +24,7 @@ class InstallAndRequirementsTest(unittest.TestCase):
         text = README.read_text()
         for marker in (
             "/marque:marque",
-            "<owner>/marque",
+            "yock/marque",
             "npx skills add",
             "codex",
             "@v0.1.0",
