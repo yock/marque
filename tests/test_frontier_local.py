@@ -106,6 +106,110 @@ class LocalFrontierTest(LocalCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, EXPECTED)
 
+    def test_plain_and_bold_status_lines_both_carry_the_triage_label(self):
+        issues = write_local([], self.dir)
+        (issues / "01-plain.md").write_text(
+            "# 01: Plain\n\n**Blocked by:** None (can start immediately)\n\n"
+            "Status: ready-for-agent\n")
+        (issues / "02-bold.md").write_text(
+            "# 02: Bold\n\n**Blocked by:** None (can start immediately)\n\n"
+            "**Status:** ready-for-agent\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines()[1:], [
+            "#    1  fan   0  parent     -  c0  Plain",
+            "#    2  fan   0  parent     -  c0  Bold",
+        ])
+
+    def test_a_bold_none_blocker_declares_nothing_and_is_not_read_by_hand(self):
+        issues = write_local([], self.dir)
+        (issues / "05-free.md").write_text(
+            "# 05: Free\n\n**What to build:** the behaviour.\n\n"
+            "**Blocked by:** None (can start immediately)\n\n"
+            "**Status:** ready-for-agent\n\n- [ ] it works\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("READ BY HAND", r.stdout)
+        self.assertIn("#    5  fan   0  parent     -  c0  Free", r.stdout)
+
+    def test_a_resolved_status_frees_the_tickets_blocked_by_it(self):
+        # #1 is resolved, so #2 and #3 (which waits on #2) are freed in turn; only #2
+        # is on the frontier because #3 still waits on the open #2.
+        issues = write_local([], self.dir)
+        (issues / "01-done.md").write_text(
+            "# 01: First\n\n**Blocked by:** None (can start immediately)\n\n"
+            "**Status:** resolved\n")
+        (issues / "02-second.md").write_text(
+            "# 02: Second\n\n**Blocked by:** 01\n\n**Status:** ready-for-agent\n")
+        (issues / "03-third.md").write_text(
+            "# 03: Third\n\n**Blocked by:** 02\n\n**Status:** ready-for-agent\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "queue 2  frontier 1  externally blocked 0\n"
+            "#    2  fan   1  parent     -  c0  Second\n"))
+
+    def test_a_title_blocker_is_reported_as_unparseable_and_blocks(self):
+        issues = write_local([], self.dir)
+        (issues / "01-first.md").write_text(
+            "# 01: First\n\n**Blocked by:** None (can start immediately)\n\n"
+            "**Status:** ready-for-agent\n")
+        (issues / "02-second.md").write_text(
+            "# 02: Second\n\n**Blocked by:** First\n\n**Status:** ready-for-agent\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "READ BY HAND #2: unparseable reference First, treated as open\n"
+            "queue 2  frontier 1  externally blocked 0\n"
+            "#    1  fan   0  parent     -  c0  First\n"))
+
+    def test_a_well_formed_blocked_by_line_is_not_also_a_body_declaration(self):
+        # The to-tickets template's bold line, and the plain one, are the file's
+        # native edge: neither may be read a second time as a body declaration, which
+        # would report native and body blockers that disagree.
+        issues = write_local([], self.dir)
+        for name, number, line in (("01-first.md", "01", "First"),
+                                   ("02-second.md", "02", "Second"),
+                                   ("03-bold.md", "03", "Bold")):
+            (issues / name).write_text(
+                f"# {number}: {line}\n\n**Blocked by:** None (can start immediately)\n\n"
+                "**Status:** resolved\n")
+        (issues / "04-waits.md").write_text(
+            "# 04: Waits on both\n\n**Blocked by:** 01, 03\n\n"
+            "**Status:** ready-for-agent\n")
+        (issues / "05-plain.md").write_text(
+            "# 05: Plain line\n\nBlocked by: 02\n\n**Status:** ready-for-agent\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("READ BY HAND", r.stdout)
+        self.assertEqual(r.stdout.splitlines()[1:], [
+            "#    4  fan   0  parent     -  c0  Waits on both",
+            "#    5  fan   0  parent     -  c0  Plain line",
+        ])
+
+    def test_questions_under_the_comments_heading_need_the_waiting_label(self):
+        issues = write_local([], self.dir)
+        (issues / "09-asked.md").write_text(
+            "# 09: Asked\n\n**Blocked by:** None (can start immediately)\n\n"
+            "**Status:** ready-for-agent\n\n- [ ] it works\n\n"
+            "## Comments\n\nSomebody asked:\n\n### Questions\n\n- which database?\n")
+
+        r = self.run_local()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("READ BY HAND #9: has questions but no needs-info label", r.stdout)
+        self.assertIn("#    9  fan   0  parent     -  c1  Asked", r.stdout)
+
 
 class NoTrackerCliTest(LocalCase):
     def test_the_local_backend_runs_no_tracker_cli_at_all(self):
