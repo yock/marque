@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SKILL_DIR = REPO / "skills" / "marque"
+SKILL_DIR = REPO / "plugins" / "marque" / "skills" / "marque"
 SKILL = SKILL_DIR / "SKILL.md"
 REFERENCE_DIR = SKILL_DIR / "reference"
 

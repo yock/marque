@@ -55,7 +55,7 @@ class PathsTest(unittest.TestCase):
         named = [
             span
             for span in re.findall(r"`([^`\n]+)`", text)
-            if span.startswith(("skills/", "examples/", ".claude-plugin/"))
+            if span.startswith(("plugins/", "examples/", ".claude-plugin/"))
         ]
         self.assertTrue(named, "the README names no repo paths")
         for span in named:

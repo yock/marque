@@ -3,7 +3,7 @@ import re
 import unittest
 from pathlib import Path
 
-ASSETS = Path(__file__).resolve().parent.parent / "skills" / "marque" / "assets"
+ASSETS = Path(__file__).resolve().parent.parent / "plugins" / "marque" / "skills" / "marque" / "assets"
 PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 
 

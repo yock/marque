@@ -61,7 +61,7 @@ Gitea is the only backend tested by real runs. GitHub, GitLab and the local `.sc
 
 ## Using it
 
-Invoke the skill — `/marque:marque` in Claude Code, or your harness's equivalent — and it starts with the commission: `skills/marque/reference/commission.md`. The commission checks the setup files, gap-checks the tracker doc against the operations Marque needs, names the account Marque acts as, settles the landing mode and records every term in `plan.md`. Then the loop begins.
+Invoke the skill — `/marque:marque` in Claude Code, or your harness's equivalent — and it starts with the commission: `plugins/marque/skills/marque/reference/commission.md`. The commission checks the setup files, gap-checks the tracker doc against the operations Marque needs, names the account Marque acts as, settles the landing mode and records every term in `plan.md`. Then the loop begins.
 
 Per-project overrides and extensions go in `docs/agents/marque.md`; per-user or per-machine ones in `~/.config/marque/marque.md`.
 
@@ -72,20 +72,24 @@ An extension is prose Marque reads and follows at one of five points — **commi
 ## Layout
 
 ```text
-.claude-plugin/            one manifest for every harness
-skills/marque/SKILL.md     the method
-skills/marque/scripts/     frontier.py, split_spec.py, land.py, ledger.py
-skills/marque/assets/      the explore and brief-tail templates
-skills/marque/reference/   commission, landing, asking, extensions, harnesses, operations, trackers/
-examples/                  the worked extension
-tests/                     the suite
+.claude-plugin/                          the marketplace, read by every harness
+plugins/marque/                          the plugin: everything an install receives
+plugins/marque/.claude-plugin/           the plugin manifest
+plugins/marque/skills/marque/SKILL.md    the method
+plugins/marque/skills/marque/scripts/    frontier.py, split_spec.py, land.py, ledger.py
+plugins/marque/skills/marque/assets/     the explore and brief-tail templates
+plugins/marque/skills/marque/reference/  commission, landing, asking, extensions, harnesses, operations, trackers/
+examples/                                the worked extension
+tests/                                   the suite
 ```
+
+Only `plugins/marque/` ships. The development skills under `.agents/`, the docs and the tests stay in the repo.
 
 Run the tests with `python3 -m unittest discover tests`.
 
 ## Pinning and releases
 
-Releases are semver tags (`v0.1.0`, `v0.2.0`, …) with the version in `.claude-plugin/plugin.json`. Pin one with `@v0.1.0` on skills.sh and `#v0.1.0` in a Claude marketplace:
+Releases are semver tags (`v0.1.0`, `v0.2.0`, …) with the version in `plugins/marque/.claude-plugin/plugin.json`. Pin one with `@v0.1.0` on skills.sh and `#v0.1.0` in a Claude marketplace:
 
 ```sh
 npx skills add yock/marque@v0.1.0 -a codex

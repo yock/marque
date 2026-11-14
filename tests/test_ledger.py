@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-LEDGER = REPO / "skills" / "marque" / "scripts" / "ledger.py"
+LEDGER = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "ledger.py"
 
 
 def run(*args, state_dir, env=None):

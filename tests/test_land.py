@@ -8,8 +8,8 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-LAND = REPO / "skills" / "marque" / "scripts" / "land.py"
-LEDGER = REPO / "skills" / "marque" / "scripts" / "ledger.py"
+LAND = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "land.py"
+LEDGER = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "ledger.py"
 
 ISSUE = 7
 BRANCH = "orch-7"

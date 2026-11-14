@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "marque",
-      "source": "./",
+      "source": "./plugins/marque",
       "description": "Orchestrate implementer agents through a ticket queue: pick, brief, dispatch, review, land and close.",
       "category": "engineering"
     }

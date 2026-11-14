@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO / "skills" / "marque" / "scripts"
+SCRIPTS = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts"
 STUBS = Path(__file__).resolve().parent / "stubs"
 FRONTIER = SCRIPTS / "frontier.py"
 REPO_NAME = "o/r"

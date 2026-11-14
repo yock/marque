@@ -1,4 +1,4 @@
-"""The moved skill's scripts still run from skills/marque/."""
+"""The moved skill's scripts still run from plugins/marque/skills/marque/."""
 import os
 import subprocess
 import sys
@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO / "skills" / "marque" / "scripts"
+SCRIPTS = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts"
 
 
 def run(script, *args, cwd):
