@@ -372,6 +372,8 @@ class OperationsReferenceTest(unittest.TestCase):
             "ledger.py",
             "reference/landing.md",
             "reference/extensions.md",
+            "stall hour",
+            "default 1 hour",
             POSITIONAL_LESSON,
             SHARED_MACHINE_LESSON,
         ):
