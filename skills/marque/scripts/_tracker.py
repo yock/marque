@@ -17,6 +17,7 @@ import json
 import os
 import re
 import subprocess
+from urllib.parse import quote
 
 
 class TrackerError(Exception):
@@ -71,7 +72,7 @@ class _Backend:
         if expect == "dict" and not isinstance(data, dict):
             raise TrackerError(cmd, f"expected an object, got {_preview(data)}")
         if expect == "issue":
-            if isinstance(data, dict) and "number" in data:
+            if isinstance(data, dict) and ("number" in data or "iid" in data):
                 return data
             if (isinstance(data, dict) and "not found" in str(data.get("message", "")).lower()):
                 return data
@@ -260,7 +261,133 @@ class GitHub(_Backend):
         return {"number": number, "repo": repo, "state": i.get("state"), "raw": raw}
 
 
-BACKENDS = ("gitea", "github")
+GRAPHQL_PARENT = (
+    'query{project(fullPath:"%s"){workItems(iids:["%d"]){nodes{iid widgets{... on '
+    'WorkItemWidgetHierarchy{parent{iid state webUrl}}}}}}}')
+
+
+class GitLab(_Backend):
+    """GitLab, through `glab api`. `login` names the env var holding the token."""
+
+    # --- the one place a call is made --------------------------------------
+    def _cmd(self, path):
+        return (["glab", "api"] + (["--hostname", self.host] if self.host else [])
+                + [path])
+
+    def _env(self):
+        """Send the orchestrator's token, named by `login`, with every call.
+
+        glab has no per-call user: the token travels in the environment only, never
+        in argv or an error message. `GITLAB_HOST` decides which host accepts it.
+        """
+        if not self.login:
+            return None
+        value = os.environ.get(self.login)
+        if not value:
+            raise TrackerError(["glab", "api"],
+                               f"--login names the variable {self.login}, which is not set")
+        env = dict(os.environ)
+        env["GITLAB_TOKEN"] = value
+        if self.host:
+            env["GITLAB_HOST"] = self.host
+        return env
+
+    # --- issues -------------------------------------------------------------
+    def open_issues(self, label=None):
+        """Every open issue, paged; optionally only those with `label`."""
+        out, page = [], 1
+        while True:
+            q = f"projects/{self.project}/issues?state=opened&scope=all"
+            if label:
+                q += f"&labels={label}"
+            q += f"&per_page=100&page={page}"
+            batch = self._call(q, "list")
+            out += batch
+            if len(batch) < 100:
+                return [self._normalise(i) for i in out]
+            page += 1
+
+    def issue(self, n):
+        """One ticket, or None when GitLab answers 404."""
+        try:
+            data = self._call(f"projects/{self.project}/issues/{n}", "issue")
+        except TrackerError as e:
+            if "HTTP 404" in e.reason:
+                return None
+            raise
+        return self._normalise(data)
+
+    def comments(self, n):
+        out, page = [], 1
+        while True:
+            batch = self._call(
+                f"projects/{self.project}/issues/{n}/notes"
+                f"?sort=asc&order_by=created_at&per_page=100&page={page}", "list")
+            out += [{"body": c.get("body") or ""} for c in batch if not c.get("system")]
+            if len(batch) < 100:
+                return out
+            page += 1
+
+    def dependencies(self, n):
+        """The links that block `n`: `is_blocked_by`, not `blocks`."""
+        batch = self._call(f"projects/{self.project}/issues/{n}/links", "list")
+        return [self._ref(i) for i in batch if i.get("link_type") == "is_blocked_by"]
+
+    def native_parent(self, ticket):
+        """The parent from one GraphQL call: GitLab has no REST parent."""
+        n = ticket["number"]
+        cmd = self._cmd("graphql") + ["-f", "query=" + GRAPHQL_PARENT % (self.repo, n)]
+        data = self._fetch(cmd, "dict")
+        if data.get("errors"):
+            raise TrackerError(cmd, _preview(data["errors"]))
+        project = (data.get("data") or {}).get("project") or {}
+        nodes = (project.get("workItems") or {}).get("nodes") or []
+        for node in nodes:
+            for widget in node.get("widgets") or []:
+                parent = (widget or {}).get("parent")
+                if not parent:
+                    continue
+                number = int(parent["iid"])
+                repo = self._url_repo(parent.get("webUrl")) or self.repo
+                raw = f"#{number}" if repo == self.repo else f"{repo}#{number}"
+                return {"number": number, "repo": repo,
+                        "state": _state(parent.get("state")), "raw": raw}
+        return None
+
+    # --- shaping ------------------------------------------------------------
+    @property
+    def project(self):
+        """The project id GitLab's REST paths use: the path, URL-encoded."""
+        return quote(self.repo, safe="")
+
+    @staticmethod
+    def _url_repo(url):
+        """`o/r` from a work item's web URL: the path before `/-/`."""
+        m = re.search(r"https?://[^/]+/(.+?)/-/", url or "")
+        return m.group(1) if m else None
+
+    def _normalise(self, i):
+        return {
+            "number": int(i["iid"]),
+            "title": i.get("title") or "",
+            "state": _state(i.get("state")) or "open",
+            "labels": list(i.get("labels") or []),
+            "assignees": [a.get("username") for a in i.get("assignees") or []],
+            "body": i.get("description") or "",
+            "comments": int(i.get("user_notes_count") or 0),
+            "blockers": None,
+            "parent": None,
+        }
+
+    def _ref(self, i):
+        number = int(i["iid"])
+        full = ((i.get("references") or {}).get("full")) or f"{self.repo}#{number}"
+        repo = full.split("#", 1)[0]
+        raw = f"#{number}" if repo == self.repo else f"{repo}#{number}"
+        return {"number": number, "repo": repo, "state": _state(i.get("state")), "raw": raw}
+
+
+BACKENDS = ("gitea", "github", "gitlab")
 
 
 def backend(name, repo, login=None, host=None):
@@ -269,4 +396,6 @@ def backend(name, repo, login=None, host=None):
         return Gitea(repo, login)
     if name == "github":
         return GitHub(repo, login, host)
+    if name == "gitlab":
+        return GitLab(repo, login, host)
     raise TrackerError(["tea", "api"], f"{name} is not built yet")

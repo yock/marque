@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "skills" / "marque" / "scripts"
@@ -126,6 +127,44 @@ def github_fixture(queue):
     return fixture
 
 
+PROJECT = quote(REPO_NAME, safe="")
+
+
+def gitlab_fixture(queue):
+    """The queue in GitLab's API shapes, read through `glab api` and its GraphQL."""
+    raw = {}
+    for t in queue:
+        raw[t["number"]] = {
+            "iid": t["number"], "title": t["title"], "description": t["body"],
+            "state": "opened" if t["state"] == "open" else "closed",
+            "labels": list(t["labels"]),
+            "assignees": [{"username": x} for x in t.get("assignees", [])],
+            "user_notes_count": t["comments"],
+            "references": {"full": f"{REPO_NAME}#{t['number']}"},
+        }
+    fixture = {
+        f"projects/{PROJECT}/issues": [
+            raw[n] for n in raw if raw[n]["state"] == "opened"],
+        f"projects/{PROJECT}/issues?labels={LABEL}": [
+            raw[n] for n in raw if raw[n]["state"] == "opened" and LABEL in raw[n]["labels"]],
+    }
+    for n, issue in raw.items():
+        fixture[f"projects/{PROJECT}/issues/{n}"] = issue
+        fixture[f"projects/{PROJECT}/issues/{n}/links"] = [
+            {"iid": b, "state": raw[b]["state"], "references": {"full": f"{REPO_NAME}#{b}"},
+             "link_type": "is_blocked_by"}
+            for b in blocker_numbers(queue, n)]
+    for t in queue:
+        p = t["parent"]
+        nodes = [] if p is None else [
+            {"iid": str(t["number"]), "widgets": [{"parent": {
+                "iid": str(p), "state": "opened",
+                "webUrl": f"https://gitlab.com/{REPO_NAME}/-/work_items/{p}"}}]}]
+        fixture[f"graphql:{t['number']}"] = {
+            "data": {"project": {"workItems": {"nodes": nodes}}}}
+    return fixture
+
+
 class BackendCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -152,9 +191,7 @@ class BackendCase(unittest.TestCase):
 
 
 class SameFrontierTest(BackendCase):
-    def test_one_queue_yields_the_same_frontier_on_gitea_and_github(self):
-        self.log.unlink(missing_ok=True)
-
+    def test_one_queue_yields_the_same_frontier_on_all_three_backends(self):
         gitea = self.run_frontier("gitea", gitea_fixture(QUEUE))
         self.assertEqual(gitea.returncode, 0, gitea.stderr)
         self.assertEqual(gitea.stdout, EXPECTED)
@@ -162,6 +199,10 @@ class SameFrontierTest(BackendCase):
         github = self.run_frontier("github", github_fixture(QUEUE))
         self.assertEqual(github.returncode, 0, github.stderr)
         self.assertEqual(github.stdout, EXPECTED)
+
+        gitlab = self.run_frontier("gitlab", gitlab_fixture(QUEUE))
+        self.assertEqual(gitlab.returncode, 0, gitlab.stderr)
+        self.assertEqual(gitlab.stdout, EXPECTED)
 
 
 class LoudFailureTest(BackendCase):
@@ -173,6 +214,52 @@ class LoudFailureTest(BackendCase):
         self.assertEqual(r.stdout, "")
         self.assertIn("gh api", r.stderr)
         self.assertIn("repos/o/r/issues/6/dependencies/blocked_by", r.stderr)
+
+    def test_a_failed_gitlab_links_call_exits_nonzero_and_names_the_call(self):
+        r = self.run_frontier("gitlab", gitlab_fixture(QUEUE),
+                              extra_env={"STUB_GLAB_FAIL": "links"})
+
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("glab api", r.stderr)
+        self.assertIn(f"projects/{PROJECT}/issues/6/links", r.stderr)
+
+
+class GitLabLinksTest(BackendCase):
+    def test_only_is_blocked_by_links_block_and_the_graphql_parent_is_read(self):
+        # #9's link to #5 is `blocks` (it blocks #5, not the other way round), so #9
+        # stays free. #10's link is `is_blocked_by` #6, so it waits on the open #6.
+        # #11's parent comes from GraphQL. All fan-outs are 0 (#5 is not queued).
+        queue = [
+            {"number": 1, "title": "The spec", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 5, "title": "Another ticket", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 6, "title": "A blocker", "state": "open", "labels": [],
+             "body": "", "comments": 0, "native_blockers": [], "parent": None},
+            {"number": 9, "title": "Blocks another", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [5],
+             "parent": None},
+            {"number": 10, "title": "Is blocked", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [6],
+             "parent": None},
+            {"number": 11, "title": "Child", "state": "open", "labels": [LABEL],
+             "assignees": [], "body": "", "comments": 0, "native_blockers": [],
+             "parent": 1},
+        ]
+        fixture = gitlab_fixture(queue)
+        fixture[f"projects/{PROJECT}/issues/9/links"][0]["link_type"] = "blocks"
+
+        r = self.run_frontier("gitlab", fixture)
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, (
+            "queue 3  frontier 2  externally blocked 1\n"
+            "#   11  fan   0  parent #   1  c0  Child\n"
+            "#    9  fan   0  parent     -  c0  Blocks another\n"
+            "externally blocked: #10<-#6\n"))
+        starts = [c[1] for c in self.calls() if c[0] == "start"]
+        self.assertIn("graphql:11", starts)
 
 
 if __name__ == "__main__":
