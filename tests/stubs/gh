@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""A stub `gh` for the frontier tests. Only `gh auth token` and `gh api` exist.
+
+STUB_GH_FIXTURE  a JSON object mapping a request key to its response. The key is the
+                 PATH without its query string, plus `?labels=X` when present.
+                 `page=N` for N > 1 answers `[]`; a missing key answers
+                 `{"message": "Not Found"}` on stdout with `gh: Not Found (HTTP 404)`
+                 on stderr and exit 1, as real gh does for a 404.
+STUB_GH_LOG      a file to append `start LABEL token=V` / `end LABEL token=V`. V is
+                 GH_TOKEN or `-`. LABEL is the path, or `auth/token --user U`.
+STUB_GH_FAIL     a substring of LABEL; matching calls print to stderr, answer a
+                 server error JSON and exit 1 with `(HTTP 500)`.
+
+`gh auth token --user U [--hostname H]` prints `tok-U`. While a call is open the stub
+holds `<log>.lock`; if it cannot create it, the log gets an `OVERLAP` line, which is
+how a test detects calls made in parallel.
+"""
+import json
+import os
+import sys
+import time
+
+
+def log(line):
+    path = os.environ.get("STUB_GH_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+
+
+def params(path):
+    _, _, query = path.partition("?")
+    return dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+
+
+def key_of(path):
+    base, _, _ = path.partition("?")
+    q = params(path)
+    return base + (f"?labels={q['labels']}" if "labels" in q else "")
+
+
+def token():
+    return os.environ.get("GH_TOKEN") or "-"
+
+
+def response(key):
+    fixture = os.environ.get("STUB_GH_FIXTURE")
+    data = json.loads(open(fixture, encoding="utf-8").read()) if fixture else {}
+    return data.get(key)
+
+
+def api(path):
+    """(exit code, stdout) for one `gh api PATH`."""
+    if params(path).get("page") not in (None, "1"):
+        return 0, json.dumps([])
+    data = response(key_of(path))
+    if data is None:
+        print("gh: Not Found (HTTP 404)", file=sys.stderr)
+        return 1, json.dumps({"message": "Not Found"})
+    return 0, json.dumps(data)
+
+
+def call(label, body):
+    lock = None
+    if os.environ.get("STUB_GH_LOG"):
+        lock = os.environ["STUB_GH_LOG"] + ".lock"
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            lock = None
+            log(f"OVERLAP {label} token={token()}")
+
+    log(f"start {label} token={token()}")
+    try:
+        fail = os.environ.get("STUB_GH_FAIL")
+        if fail and fail in label:
+            print("gh: server error (HTTP 500)", file=sys.stderr)
+            return 1
+        time.sleep(0.05)
+        code, out = body()
+        if out:
+            print(out)
+        return code
+    finally:
+        log(f"end {label} token={token()}")
+        if lock:
+            os.remove(lock)
+
+
+def main(argv):
+    if argv[:2] == ["auth", "token"]:
+        rest, user = argv[2:], None
+        while rest:
+            if rest[0] == "--user" and len(rest) > 1:
+                user, rest = rest[1], rest[2:]
+            elif rest[0] == "--hostname" and len(rest) > 1:
+                rest = rest[2:]
+            else:
+                print(f"stub gh: unsupported argument {rest[0]}", file=sys.stderr)
+                return 1
+        if user is None:
+            print("stub gh: auth token needs --user", file=sys.stderr)
+            return 1
+        label = f"auth/token --user {user}"
+        return call(label, lambda: (0, f"tok-{user}"))
+
+    if argv[:1] != ["api"]:
+        print("stub gh: only `gh api` and `gh auth token` are supported", file=sys.stderr)
+        return 1
+    rest = argv[1:]
+    while rest[:1] == ["--hostname"] and len(rest) > 1:
+        rest = rest[2:]
+    if not rest:
+        print("stub gh: api needs a path", file=sys.stderr)
+        return 1
+    path = rest[0]
+    return call(path, lambda: api(path))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

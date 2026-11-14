@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""split_spec.py --backend gitea --repo OWNER/NAME --state-dir DIR SPEC...: split specs into greppable files.
+"""split_spec.py --backend gitea|github|gitlab --repo OWNER/NAME [--host H]
+--state-dir DIR SPEC...: split specs into greppable files.
 
 Writes DIR/specs/<n>/:
   body-NN-<slug>.md   one per `##`/`###` section of the issue body (body-00 is the intro);
@@ -26,7 +27,10 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--backend", required=True, choices=BACKENDS)
     ap.add_argument("--repo", required=True, help="OWNER/NAME")
-    ap.add_argument("--login", help="the tracker CLI login to use")
+    ap.add_argument("--login",
+                    help="tea login name / gh user / name of the env var holding the "
+                         "GitLab token")
+    ap.add_argument("--host", help="the tracker host, for gh and glab (gitea ignores it)")
     ap.add_argument("--state-dir", required=True, help="the state directory to write under")
     ap.add_argument("spec", nargs="+", type=int)
     return ap.parse_args(argv)
@@ -57,7 +61,7 @@ def write_spec(n, issue, comments, root):
 
 def split(a):
     """Split each spec, in the order given; stop at the first one that fails."""
-    tracker = backend(a.backend, a.repo, a.login)
+    tracker = backend(a.backend, a.repo, a.login, a.host)
     root = Path(a.state_dir)
     for n in a.spec:
         issue = tracker.issue(n)
