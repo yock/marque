@@ -52,5 +52,35 @@ class HelpTest(unittest.TestCase):
         self.assertIn("running, review, retry, orchestrator, landing", r.stdout)
 
 
+HEADER = "issue\tstate\tbranch\tworktree\tsession\tattempts\tbrief\tverdict\tlanded\tnote\n"
+
+
+class SetAndGetTest(unittest.TestCase):
+    def test_set_creates_the_ledger_with_the_header_and_get_prints_the_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            r = run("set", "5", "running", "--branch", "orch-5", state_dir=state_dir)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            text = (state_dir / "ledger.tsv").read_text()
+            self.assertEqual(text.split("\n")[0] + "\n", HEADER)
+
+            r = run("get", "5", state_dir=state_dir)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            # Ten fields, padded with empties.
+            self.assertEqual(r.stdout, "5\trunning\torch-5\t\t\t\t\t\t\t\n")
+
+    def test_get_of_a_row_that_does_not_exist_exits_one_and_prints_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            run("set", "5", "running", state_dir=state_dir)
+
+            r = run("get", "99", state_dir=state_dir)
+
+            self.assertEqual(r.returncode, 1)
+            self.assertEqual(r.stdout, "")
+            self.assertIn("no row for #99", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,21 @@ schema.
 """
 import argparse
 import sys
+from pathlib import Path
 
+FIELDS = [
+    "issue",
+    "state",
+    "branch",
+    "worktree",
+    "session",
+    "attempts",
+    "brief",
+    "verdict",
+    "landed",
+    "note",
+]
+HEADER = "\t".join(FIELDS)
 STATES = [
     ("queued", "in the queue, not started"),
     ("exploring", "the read-only explore step is running"),
@@ -37,6 +51,41 @@ loop checks it every pass.
 """
 
 
+def ledger_path(state_dir):
+    return Path(state_dir) / "ledger.tsv"
+
+
+def read_rows(state_dir):
+    """The ledger's rows, header dropped, each padded to the 10 columns."""
+    path = ledger_path(state_dir)
+    if not path.exists():
+        return []
+    lines = path.read_text().splitlines()
+    if lines and lines[0].split("\t")[0] == "issue":
+        lines = lines[1:]
+    rows = []
+    for line in lines:
+        if not line:
+            continue
+        row = line.split("\t")
+        rows.append(row + [""] * (len(FIELDS) - len(row)))
+    return rows
+
+
+def write_rows(state_dir, rows):
+    path = ledger_path(state_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "\n".join([HEADER] + ["\t".join(row[: len(FIELDS)]) for row in rows]) + "\n"
+    path.write_text(text)
+
+
+def row_for(rows, n):
+    for row in rows:
+        if row[0] == str(n):
+            return row
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
@@ -44,7 +93,42 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--state-dir", required=True, metavar="DIR")
-    ap.parse_args()
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("get", help="print one ticket's row, or one field of it")
+    p.add_argument("n", type=int)
+    p.add_argument("field", nargs="?", choices=FIELDS)
+
+    p = sub.add_parser("set", help="create or update one ticket's row")
+    p.add_argument("n", type=int)
+    p.add_argument("state")
+    for field in FIELDS[2:]:
+        p.add_argument("--" + field, metavar="V")
+
+    a = ap.parse_args()
+    rows = read_rows(a.state_dir)
+
+    if a.cmd == "get":
+        row = row_for(rows, a.n)
+        if row is None:
+            print(f"ledger.py: no row for #{a.n}", file=sys.stderr)
+            raise SystemExit(1)
+        if a.field:
+            print(row[FIELDS.index(a.field)])
+        else:
+            print("\t".join(row))
+    elif a.cmd == "set":
+        row = row_for(rows, a.n)
+        if row is None:
+            row = [""] * len(FIELDS)
+            row[0] = str(a.n)
+            rows.append(row)
+        row[1] = a.state
+        for field in FIELDS[2:]:
+            value = getattr(a, field)
+            if value is not None:
+                row[FIELDS.index(field)] = value
+        write_rows(a.state_dir, rows)
 
 
 if __name__ == "__main__":
