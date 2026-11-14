@@ -7,10 +7,10 @@ through the command lines the orchestrator passes in, then removes the worktree
 and the branch. The tracker steps are command lines, so the script stays
 tracker-neutral: their environment carries MARQUE_ISSUE and MARQUE_RESOLUTION.
 
-Each finished step goes on the journal before the next one starts, so a run that
-dies part-way is finished by re-running the same command; no step happens twice.
-The ledger says `landing` from before the merge until every step, clean-up
-included, is done, and then `landed` with the merge commit.
+Each finished step goes on the journal (DIR/landing/<N>.log) before the next one
+starts, so a run that dies part-way is finished by re-running the same command; no
+step happens twice. The ledger says `landing` from before the merge until every
+step, clean-up included, is done, and then `landed` with the merge commit.
 
 Exit codes: 0 landed (or already landed); 3 a precondition failed and nothing
 changed; 1 a step failed mid-landing.
@@ -294,9 +294,9 @@ def land(a):
         except StepError as e:
             print("land.py: step failed: %s" % e, file=sys.stderr)
             return 1
+        crash("landing")
         journal_path.parent.mkdir(parents=True, exist_ok=True)
         journal_path.write_text("")
-        crash("landing")
     return run_steps(a, Journal(journal_path))
 
 
