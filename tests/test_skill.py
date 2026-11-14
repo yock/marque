@@ -62,6 +62,13 @@ class RetiredVocabularyTest(unittest.TestCase):
         self.assert_clean(REFERENCE_DIR / "asking.md")
 
 
+class TitleTest(unittest.TestCase):
+    def test_the_skill_is_titled_marque(self):
+        text = SKILL.read_text()
+        self.assertIn("\n# Marque: ", text)
+        self.assertNotIn("symphony", text.lower())
+
+
 class ReferenceIndexTest(unittest.TestCase):
     def test_the_skill_points_at_exactly_its_six_references(self):
         mentioned = {Path(p).name for p in REFERENCE_PATH.findall(SKILL.read_text())}

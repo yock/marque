@@ -4,7 +4,7 @@ Landing merges an integrated, green ticket branch onto the target branch — dir
 
 ## Target branch and merge style
 
-The target branch is a term of the commission: the repo's default branch unless the developer names another, and `docs/agents/marque.md` may override it. Merge style is `--no-ff`, unless the project's `AGENTS.md` states another convention; pass `--no-ff` or `--squash` as `--merge-style`. The merge message is `Merge #n: <gist>`.
+The target branch is a term of the commission: the repo's default branch unless the developer names another, and `docs/agents/marque.md` may override it. Merge style is `--no-ff`, unless the project's `AGENTS.md` states another convention; pass `--merge-style no-ff` or `--merge-style squash`. The merge message is `Merge #n: <gist>`.
 
 ## The guarded landing
 
