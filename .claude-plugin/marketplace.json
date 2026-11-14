@@ -1,0 +1,13 @@
+{
+  "name": "marque",
+  "owner": { "name": "Michael Yockey" },
+  "description": "Marque: an orchestration skill for agent ticket queues.",
+  "plugins": [
+    {
+      "name": "marque",
+      "source": "./",
+      "description": "Orchestrate implementer agents through a ticket queue: pick, brief, dispatch, review, land and close.",
+      "category": "engineering"
+    }
+  ]
+}
