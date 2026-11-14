@@ -8,11 +8,12 @@ PLACEHOLDER = re.compile(r"\{\{[A-Z_]+\}\}")
 
 
 def split_header(name):
-    """The header comment (before the first ``-->``) and the body after it."""
+    """The header comment (up to the first ``-->``) and the body after it."""
     text = (ASSETS / name).read_text()
-    start = text.find("<!--")
-    end = text.find("-->", start)
-    return text[start:end], text[end + 2:]
+    if not text.startswith("<!--"):
+        raise AssertionError(f"{name} starts with a placeholder header comment")
+    end = text.index("-->")
+    return text[:end], text[end + 3:]
 
 
 class AssetPlaceholderTest(unittest.TestCase):
