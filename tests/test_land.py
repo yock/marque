@@ -238,6 +238,13 @@ class CrashAndResumeTest(unittest.TestCase):
                 self.assertEqual(
                     ledger("get", "7", "state", state=l.state).stdout.strip(), "landing"
                 )
+                # Clean-up comes last: until it has run, the worktree and branch stay.
+                if step != "cleaned":
+                    self.assertTrue(l.wt.exists())
+                    self.assertEqual(
+                        sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                        BRANCH,
+                    )
 
                 r = land(l)
 
@@ -277,6 +284,77 @@ class AlreadyLandedTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(r.stdout, "landed #7 %s\n" % tip)
             self.assertEqual(l.calls.read_text(), calls)
+
+
+class FailingStepTest(unittest.TestCase):
+    def test_a_failed_tracker_step_stops_the_landing_and_a_re_run_finishes_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+
+            r = land(l, close_cmd="exit 1")
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            # The comment went out once and the close step stopped the landing;
+            # the worktree is still there for the re-run.
+            self.assertEqual(l.calls.read_text(), "comment 7 Finished #7: the worktree adds two.\n")
+            self.assertTrue(l.wt.exists())
+            self.assertEqual(
+                sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                BRANCH,
+            )
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                l.calls.read_text(),
+                "comment 7 Finished #7: the worktree adds two.\nclose 7\n",
+            )
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+
+
+class SquashTest(unittest.TestCase):
+    def test_squash_style_lands_one_commit_on_the_branch_tip_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+
+            r = land(l, merge_style="squash")
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            tip = sh("git", "rev-parse", "master", cwd=l.origin)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % tip)
+            self.assertEqual(
+                sh("git", "log", "-1", "--format=%s", "master", cwd=l.origin),
+                "Merge #7: Add the two",
+            )
+            # One parent: the branch's work landed as a single commit on master.
+            self.assertEqual(len(sh("git", "log", "-1", "--format=%P", "master", cwd=l.origin).split()), 1)
+            self.assertEqual(sh("git", "show", "master:numbers.txt", cwd=l.origin), "one\ntwo")
+            self.assertFalse(l.wt.exists())
+            self.assertEqual(
+                sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                "",
+            )
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
+
+
+class NoForcePushTest(unittest.TestCase):
+    def test_a_rejected_push_is_a_failed_step_not_a_forced_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l, env={"MARQUE_LAND_CRASH_AFTER": "merged"})
+            self.assertEqual(r.returncode, 70, r.stderr)
+            commit_elsewhere(l)
+            other_tip = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            # The push was rejected; origin still has the other clone's commit.
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), other_tip)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            self.assertFalse(l.calls.exists())
 
 
 if __name__ == "__main__":
