@@ -83,6 +83,35 @@ class FrontierCase(unittest.TestCase):
 
 
 class FrontierTest(FrontierCase):
+    def test_native_edges_and_parent_sections_rank_by_fanout(self):
+        # to-tickets shape: native dependencies and a `## Parent` section, no body
+        # `Blocked by`. #22 waits on the closed #20 and blocks #23, which blocks #24:
+        # fan(#22) = 2 (#23, #24). #40 waits on nothing. Both are children of #18.
+        self.issues(
+            [{"number": 18, "title": "The spec"},
+             {"number": 20, "state": "closed"},
+             {"number": 22, "title": "First", "labels": ["ready-for-agent"],
+              "body": "## Parent\n\n#18"},
+             {"number": 23, "title": "Second", "labels": ["ready-for-agent"],
+              "body": "## Parent\n\n#18"},
+             {"number": 24, "title": "Third", "labels": ["ready-for-agent"],
+              "body": "## Parent\n\n#18"},
+             {"number": 40, "title": "Fourth", "labels": ["ready-for-agent"],
+              "body": "## Parent\n\n#18"}],
+            deps={22: [20], 23: [22], 24: [23], 40: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("queue 4  frontier 2  externally blocked 0", r.stdout)
+        body = r.stdout.splitlines()[1:]
+        self.assertEqual(body, [
+            "#   22  fan   2  parent #  18  c0  First",
+            "#   40  fan   0  parent #  18  c0  Fourth",
+        ])
+        self.assertNotIn("READ BY HAND", r.stdout)
+
     def test_a_queued_ticket_with_a_closed_blocker_is_on_the_frontier(self):
         self.issues(
             [{"number": 3, "title": "done", "state": "closed"},
@@ -120,6 +149,23 @@ class FrontierTest(FrontierCase):
         self.assertIn("#    6  fan   0  parent #   1  c0  Line form", r.stdout)
         self.assertNotIn("#    7  fan", r.stdout)
         self.assertIn("externally blocked: #7<-#9", r.stdout)
+        self.assertNotIn("READ BY HAND", r.stdout)
+
+    def test_a_declaration_of_none_declares_no_blockers(self):
+        self.issues(
+            [{"number": 5, "title": "Line says none", "labels": ["ready-for-agent"],
+              "body": "Blocked by: None"},
+             {"number": 6, "title": "Section says none", "labels": ["ready-for-agent"],
+              "body": "## Blocked by\n\n- None (can start immediately)"}],
+            deps={5: [], 6: []},
+        )
+
+        r = self.run_frontier()
+
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("queue 2  frontier 2  externally blocked 0", r.stdout)
+        self.assertIn("#    5  fan   0  parent     -  c0  Line says none", r.stdout)
+        self.assertIn("#    6  fan   0  parent     -  c0  Section says none", r.stdout)
         self.assertNotIn("READ BY HAND", r.stdout)
 
     def test_a_failed_tracker_call_exits_nonzero_and_names_the_call(self):

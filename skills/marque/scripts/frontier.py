@@ -47,6 +47,7 @@ class Level:
         self.blockers = set()
         self.open_blockers = []
         self.parent = None
+        self.fanout = 0
         self.reasons = []
 
     @property
@@ -152,14 +153,39 @@ def run(a):
     hand = [lv for lv in levels.values() if lv.reasons]
     external = {lv.number: [b for b in lv.open_blockers if b not in by_number]
                 for lv in levels.values()}
+    _rank(levels)
 
     front = [lv for lv in levels.values()
              if not lv.ticket["assignees"]
              and a.waiting_label not in lv.labels
              and not lv.open_blockers]
-    front.sort(key=lambda lv: lv.number)
+    front.sort(key=_rank_key)
 
     return _text(a, queue, waiting, hand, front, external)
+
+
+def _rank(levels):
+    """Each ticket's fan-out: the queued tickets that transitively wait on it."""
+    dependents = {number: set() for number in levels}
+    for lv in levels.values():
+        for blocker in lv.open_blockers:
+            if blocker in dependents:
+                dependents[blocker].add(lv.number)
+
+    def reach(number, seen):
+        for dependent in dependents[number]:
+            if dependent not in seen:
+                seen.add(dependent)
+                reach(dependent, seen)
+        return len(seen)
+
+    for lv in levels.values():
+        lv.fanout = reach(lv.number, set())
+
+
+def _rank_key(lv):
+    """Fan-out first, then parented before parentless, then parent and number."""
+    return (-lv.fanout, lv.parent is None, lv.parent or 0, lv.number)
 
 
 def _is_open(level, number, open_set):
@@ -182,7 +208,7 @@ def _text(a, queue, waiting, hand, front, external):
     ext = sorted((lv for lv in external if external[lv]), key=lambda x: x)
     lines.append(f"queue {len(queue)}  frontier {len(front)}  externally blocked {len(ext)}")
     for lv in front[:a.limit]:
-        lines.append(f"#{lv.number:>5}  fan   0  parent {_parent_text(lv.parent)}  "
+        lines.append(f"#{lv.number:>5}  fan {lv.fanout:>3}  parent {_parent_text(lv.parent)}  "
                      f"c{lv.comments}  {lv.ticket['title'][:90]}")
     if ext:
         lines.append("externally blocked: " + ", ".join(
