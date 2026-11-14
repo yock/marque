@@ -123,6 +123,9 @@ class Gitea:
         return {"number": number, "repo": repo, "state": i.get("state"), "raw": raw}
 
 
+BACKENDS = ("gitea",)
+
+
 def backend(name, repo, login=None):
     """The tracker for `name`. Only gitea is built so far."""
     if name == "gitea":
