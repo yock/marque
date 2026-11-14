@@ -219,8 +219,11 @@ class ExtensionsReferenceTest(unittest.TestCase):
         for marker in (
             "docs/agents/marque.md",
             "~/.config/marque/marque.md",
+            "applies after",
             "plan.md",
             "re-approv",
+            "add to or tighten",
+            "ignores that part",
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
@@ -229,4 +232,38 @@ class ExtensionsReferenceTest(unittest.TestCase):
         # #8: every ten landings is a core event; battery emergency left the list.
         text = (REFERENCE_DIR / "extensions.md").read_text()
         self.assertIn("every ten landings", text)
+        self.assertIn("otherwise chat", text)
         self.assertNotIn("battery emergency", text)
+
+
+EXAMPLES = REPO / "examples"
+
+
+class BatteryPacingExampleTest(unittest.TestCase):
+    def test_the_sample_file_has_the_three_sections_it_exercises(self):
+        # #8's worked example: commission, dispatch and notify only.
+        text = (EXAMPLES / "battery-pacing" / "marque.md").read_text()
+        headings = [line for line in text.splitlines() if line.startswith("#")]
+        self.assertEqual(headings, ["## commission", "## dispatch", "## notify"])
+
+    def test_the_sample_policy_is_sixty_forty_twenty(self):
+        # #8's worked example: the 60/40/20 % battery policy.
+        text = (EXAMPLES / "battery-pacing" / "marque.md").read_text()
+        for mark in ("60 %", "40 %", "20 %"):
+            with self.subTest(mark=mark):
+                self.assertIn(mark, text)
+
+    def test_the_example_owns_its_variables_and_the_script_left_the_skill(self):
+        # SYMPHONY names retired with the move; the script lives at the repo root.
+        for path in EXAMPLES.rglob("*"):
+            if path.is_file():
+                with self.subTest(path=str(path)):
+                    self.assertNotIn("SYMPHONY", path.read_text())
+        self.assertFalse((SKILL_DIR / "scripts" / "battery.sh").exists())
+
+
+class ExtensionPointersTest(unittest.TestCase):
+    def test_the_skill_points_at_extensions_at_every_point_and_drops_pacing(self):
+        text = SKILL.read_text()
+        self.assertIsNone(re.search(r"^#+ .*Pacing", text, re.M))
+        self.assertGreaterEqual(text.count("reference/extensions.md"), 5)
