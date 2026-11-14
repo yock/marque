@@ -13,10 +13,3 @@ blocking = "blocking"        # waiting on the user's answer
 dir = "~/.local/share/symphony/name"   # outside the repo: plan, ledger, briefs, specs, logs
 # ledger = "ledger.tsv"
 # asked_marker = "QUESTIONS ON TICKET"
-
-[brief]
-worktrees = ".claude/worktrees"        # implementer worktrees, <worktrees>/<prefix><n>
-worktree_prefix = "orch-"
-rules = "docs/agents/symphony-brief.md"        # build, test and repo rules spliced into every brief
-# explore_notes = "docs/agents/symphony-explore.md"  # project notes for the explore prompt
-code_dir = "src"                       # where the explore agent looks

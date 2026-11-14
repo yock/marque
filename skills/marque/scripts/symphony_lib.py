@@ -56,15 +56,6 @@ class Project:
         self.state = Path(os.path.expanduser(s.get("dir") or _missing("state.dir")))
         self.ledger = self.state / s.get("ledger", "ledger.tsv")
         self.asked_marker = s.get("asked_marker", "QUESTIONS ON TICKET")
-        b = c.get("brief", {})
-        self.worktrees = self.root / b.get("worktrees", ".claude/worktrees")
-        self.worktree_prefix = b.get("worktree_prefix", "orch-")
-        self.brief_rules = self._opt_path(b.get("rules"))
-        self.explore_notes = self._opt_path(b.get("explore_notes"))
-        self.code_dir = self.root / b.get("code_dir", ".")
-
-    def _opt_path(self, rel):
-        return (self.root / rel) if rel else None
 
     # --- the tracker -------------------------------------------------------
     def api(self, path):
@@ -80,12 +71,6 @@ class Project:
             return json.loads(r.stdout or "null")
         except json.JSONDecodeError:
             raise SystemExit(f"symphony: {path} did not return JSON: {r.stdout[:200]!r}")
-
-    def issue_api_cmd(self, path):
-        """The shell command an agent runs to GET a path (for prompts)."""
-        if self.backend == "gitea":
-            return f"tea api --login {self.login} {path}"
-        return f"gh api {path}"
 
     def open_issues(self, label=None):
         """Every open issue (not pull request), optionally with one label, paged."""
