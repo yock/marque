@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _tracker import TrackerError, backend  # noqa: E402
+from _tracker import BACKENDS, TrackerError, backend  # noqa: E402
 
 TOP = re.compile(r"(?mi)^[ \t]*Blocked by:(.*)$")
 SECTION = re.compile(r"(?ms)^#{2,}[ \t]*Blocked by[ \t]*\n(.*?)(?=^#{2,} |\Z)")
@@ -69,9 +69,12 @@ class TicketReading:
 
 def parse_args(argv):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--backend", required=True, choices=["gitea"])
+    ap.add_argument("--backend", required=True, choices=BACKENDS)
     ap.add_argument("--repo", required=True, help="OWNER/NAME")
-    ap.add_argument("--login", help="the tracker CLI login to use")
+    ap.add_argument("--login",
+                    help="tea login name / gh user / name of the env var holding the "
+                         "GitLab token")
+    ap.add_argument("--host", help="the tracker host, for gh and glab (gitea ignores it)")
     ap.add_argument("--label", default="ready-for-agent", help="the queue's label")
     ap.add_argument("--waiting-label", default="needs-info",
                     help="the label that means the user has been asked something")
@@ -192,7 +195,7 @@ def main(argv=None):
 
 
 def run(a):
-    tracker = backend(a.backend, a.repo, a.login)
+    tracker = backend(a.backend, a.repo, a.login, a.host)
     queue = tracker.open_issues(a.label)
     open_set = {i["number"] for i in tracker.open_issues()}
     by_number = {t["number"]: t for t in queue}
@@ -203,7 +206,7 @@ def run(a):
         level.native = tracker.dependencies(level.number) or []
         read_body(level)
         merge_native(level, a.repo)
-        native_parent = tracker.native_parent(level.number)
+        native_parent = tracker.native_parent(ticket)
         if native_parent is not None:
             level.parent = native_parent["number"]
         if level.comments:
