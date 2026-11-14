@@ -1,8 +1,8 @@
 # Issue tracker: Gitea
 
-Issues and specs for this repo live as Gitea issues on `gitea.yock.dev`, repo `yock/symphony`. Use the [`tea`](https://gitea.com/gitea/tea) CLI for all operations.
+Issues and specs for this repo live as Gitea issues on `gitea.yock.dev`, repo `yock/marque`. Use the [`tea`](https://gitea.com/gitea/tea) CLI for all operations.
 
-**Always pass `--login gitea.yock.dev`** (the developer's account, user `yock`; the orchestrator's is under Conventions). `tea` infers the repo from the `origin` remote when run inside a clone; pass `-r yock/symphony` when running elsewhere.
+**Always pass `--login gitea.yock.dev`** (the developer's account, user `yock`; the orchestrator's is under Conventions). `tea` infers the repo from the `origin` remote when run inside a clone; pass `-r yock/marque` when running elsewhere.
 
 ## Conventions
 
@@ -11,14 +11,14 @@ Issues and specs for this repo live as Gitea issues on `gitea.yock.dev`, repo `y
 - **Read an issue**: `tea issues <number> --login gitea.yock.dev --comments`. For machine-readable, raw-markdown output use the API: `tea api --login gitea.yock.dev 'repos/{owner}/{repo}/issues/<number>'` and `.../issues/<number>/comments`.
 - **List issues**: `tea issues ls --login gitea.yock.dev -o json -L <label> --state open` (`--limit`/`--page` to paginate; default limit is 30).
 - **Make an issue a sub-issue of a parent**: Gitea has no sub-issues. Put `Part of #<parent>` at the top of the child body.
-- **Blocking**: Gitea's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `tea api --login gitea.yock.dev -X POST 'repos/{owner}/{repo}/issues/<child>/dependencies' -F index=<blocker> -f owner=yock -f repo=symphony` (the `#number`, not a database id). Don't also write a `Blocked by` line in the body. A ticket is unblocked when every blocker is closed.
+- **Blocking**: Gitea's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `tea api --login gitea.yock.dev -X POST 'repos/{owner}/{repo}/issues/<child>/dependencies' -F index=<blocker> -f owner=yock -f repo=marque` (the `#number`, not a database id). Don't also write a `Blocked by` line in the body. A ticket is unblocked when every blocker is closed.
 - **Count open blockers**: `tea api --login gitea.yock.dev 'repos/{owner}/{repo}/issues/<n>/dependencies' | jq '[.[] | select(.state == "open")] | length'` (0 means startable). The endpoint lists closed blockers too, so always filter on `state`.
 - **Comment on an issue**: `tea comments add --login gitea.yock.dev <number> --description "$(cat body.md)"`. Write multi-line bodies to a file first.
 - **Apply / remove labels**: `tea issues edit --login gitea.yock.dev <number> --add-labels "..."` / `--remove-labels "..."` (comma-separated). A label must exist on the repo first: `tea labels create --login gitea.yock.dev --name <label> --color <hex>`.
 - **Close**: `tea issues close --login gitea.yock.dev <number>`. It takes no closing comment, so post the explanation first with `tea comments add`, then close.
 - **Pull requests**: `tea pulls create`, `tea pulls <number>`, `tea pulls merge`, etc. Gitea shares one index sequence between issues and PRs (like GitHub), so `#42` refers to exactly one of them.
 
-File issues only into `yock/symphony`. Never file into `mattpocock/skills` (the repo these skills come from).
+File issues only into `yock/marque`. Never file into `mattpocock/skills` (the repo these skills come from).
 
 ## Pull requests as a triage surface
 
