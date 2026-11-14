@@ -222,5 +222,62 @@ class PreconditionTest(unittest.TestCase):
                 self.assertEqual(sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo), BRANCH)
 
 
+STEPS = ["landing", "merged", "pushed", "confirmed", "commented", "closed", "cleaned"]
+
+
+class CrashAndResumeTest(unittest.TestCase):
+    def test_a_crash_after_any_step_resumes_without_repeating_it(self):
+        for step in STEPS:
+            with self.subTest(step=step), tempfile.TemporaryDirectory() as tmp:
+                l = make_landing(tmp)
+
+                r = land(l, env={"MARQUE_LAND_CRASH_AFTER": step})
+
+                # os._exit(70): the run dies where it stood, as a power cut would.
+                self.assertEqual(r.returncode, 70, r.stderr)
+                self.assertEqual(
+                    ledger("get", "7", "state", state=l.state).stdout.strip(), "landing"
+                )
+
+                r = land(l)
+
+                self.assertEqual(r.returncode, 0, r.stderr)
+                tip = sh("git", "rev-parse", "master", cwd=l.origin)
+                self.assertEqual(r.stdout, "landed #7 %s\n" % tip)
+                # Each tracker call happened exactly once, and the merge too.
+                self.assertEqual(
+                    l.calls.read_text(),
+                    "comment 7 Finished #7: the worktree adds two.\nclose 7\n",
+                )
+                self.assertEqual(
+                    len(sh("git", "log", "--oneline", "--grep", "Merge #7:", "master", cwd=l.origin).splitlines()),
+                    1,
+                )
+                self.assertFalse(l.wt.exists())
+                self.assertEqual(
+                    sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                    "",
+                )
+                self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+                self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
+                self.assertFalse((l.state / "landing" / "7.log").exists())
+
+
+class AlreadyLandedTest(unittest.TestCase):
+    def test_a_second_run_reports_the_landing_without_touching_anything(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            first = land(l)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            calls = l.calls.read_text()
+            tip = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % tip)
+            self.assertEqual(l.calls.read_text(), calls)
+
+
 if __name__ == "__main__":
     unittest.main()

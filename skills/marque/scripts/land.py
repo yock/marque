@@ -20,7 +20,6 @@ import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
-STEPS = ["merged", "pushed", "confirmed", "commented", "closed", "cleaned"]
 
 
 class StepError(Exception):
@@ -29,6 +28,40 @@ class StepError(Exception):
 
 class GitError(StepError):
     """A git command exited non-zero."""
+
+
+def crash(step):
+    # Test hook, for the crash-and-resume tests only: die the moment a step is on
+    # the journal, with nothing unwound, the way a power cut would. Not advertised.
+    if os.environ.get("MARQUE_LAND_CRASH_AFTER") == step:
+        os._exit(70)
+
+
+class Journal:
+    """The landing's completed steps, one line each, fsynced as they happen."""
+
+    def __init__(self, path):
+        self.path = path
+        self.done = {}
+        if path.exists():
+            for line in path.read_text().splitlines():
+                if line.strip():
+                    step, _, value = line.partition(" ")
+                    self.done[step] = value
+
+    def has(self, step):
+        return step in self.done
+
+    def get(self, step):
+        return self.done[step]
+
+    def record(self, step, value=""):
+        with open(str(self.path), "a") as f:
+            f.write((step + " " + value) if value else step)
+            f.write("\n")
+            f.flush()
+            os.fsync(f.fileno())
+        self.done[step] = value
 
 
 def git(repo, *args):
@@ -167,6 +200,73 @@ def preconditions(a):
     return fails
 
 
+def resume_preconditions(a):
+    """The only checks a resume makes: after `merged`, the target differs from origin by design."""
+    fails = []
+    try:
+        current = git(a.repo, "rev-parse", "--abbrev-ref", "HEAD")
+        if current != a.target:
+            fails.append("the repo is on %r, not %s" % (current, a.target))
+        if git(a.repo, "status", "--porcelain"):
+            fails.append("the repo has uncommitted changes")
+    except GitError as e:
+        fails.append("cannot inspect the repo: %s" % e)
+    return fails
+
+
+def already_merged(a):
+    """The merge may have happened just before a crash, with no journal line yet."""
+    if a.merge_style == "squash":
+        return git(a.repo, "log", "-1", "--format=%B", a.target).strip() == merge_message(a)
+    return is_ancestor(a.repo, a.branch, a.target)
+
+
+def run_steps(a, journal):
+    """Run every step not yet in the journal, in order; return the exit code."""
+    issue = str(a.issue)
+    try:
+        if not journal.has("merged"):
+            if already_merged(a):
+                hash_ = git(a.repo, "rev-parse", a.target)
+            else:
+                hash_ = do_merge(a)
+            journal.record("merged", hash_)
+            crash("merged")
+        hash_ = journal.get("merged")
+        if not journal.has("pushed"):
+            # A plain push: never --force, never a forced refspec. A rejected
+            # push is a failed step, and the landing stops there.
+            git(a.repo, "push", a.remote, a.target)
+            journal.record("pushed")
+            crash("pushed")
+        if not journal.has("confirmed"):
+            git(a.repo, "fetch", a.remote)
+            if not is_ancestor(a.repo, hash_, "%s/%s" % (a.remote, a.target)):
+                raise StepError("the merge %s is not on %s/%s after the push" % (hash_, a.remote, a.target))
+            journal.record("confirmed")
+            crash("confirmed")
+        if not journal.has("commented"):
+            run_tracker(a, a.comment_cmd)
+            journal.record("commented")
+            crash("commented")
+        if not journal.has("closed"):
+            run_tracker(a, a.close_cmd)
+            journal.record("closed")
+            crash("closed")
+        if not journal.has("cleaned"):
+            clean_up(a)
+            journal.record("cleaned")
+            crash("cleaned")
+        # Every step is done, clean-up included: only now is the ticket landed.
+        set_ledger(a.state_dir, issue, "landed", landed=hash_)
+        journal.path.unlink()
+    except (StepError, OSError) as e:
+        print("land.py: step failed: %s" % e, file=sys.stderr)
+        return 1
+    print("landed #%s %s" % (issue, hash_))
+    return 0
+
+
 def land(a):
     """Run the landing from start to finish; return the process exit code."""
     issue = str(a.issue)
@@ -174,27 +274,26 @@ def land(a):
         hash_ = ledger_field(a.state_dir, issue, "landed")
         print("landed #%s %s" % (issue, hash_))
         return 0
-    fails = preconditions(a)
+    journal_path = Path(a.state_dir) / "landing" / ("%s.log" % issue)
+    if journal_path.exists():
+        fails = resume_preconditions(a)
+    else:
+        fails = preconditions(a)
     if fails:
         for failure in fails:
             print("land.py: precondition failed: %s" % failure, file=sys.stderr)
         return 3
-    try:
-        set_ledger(a.state_dir, issue, "landing")
-        hash_ = do_merge(a)
-        git(a.repo, "push", a.remote, a.target)
-        git(a.repo, "fetch", a.remote)
-        if not is_ancestor(a.repo, hash_, "%s/%s" % (a.remote, a.target)):
-            raise StepError("the merge %s is not on %s/%s after the push" % (hash_, a.remote, a.target))
-        run_tracker(a, a.comment_cmd)
-        run_tracker(a, a.close_cmd)
-        clean_up(a)
-        set_ledger(a.state_dir, issue, "landed", landed=hash_)
-    except StepError as e:
-        print("land.py: step failed: %s" % e, file=sys.stderr)
-        return 1
-    print("landed #%s %s" % (issue, hash_))
-    return 0
+    if not journal_path.exists():
+        try:
+            set_ledger(a.state_dir, issue, "landing")
+        except StepError as e:
+            print("land.py: step failed: %s" % e, file=sys.stderr)
+            return 1
+        journal_path.parent.mkdir(parents=True, exist_ok=True)
+        journal_path.write_text("")
+        crash("landing")
+    return run_steps(a, Journal(journal_path))
+
 
 
 def parse_args(argv):
