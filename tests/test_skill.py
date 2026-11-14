@@ -106,3 +106,40 @@ class LoopCallsTest(unittest.TestCase):
             "push a notification",
         ):
             self.assertIn(verb, text)
+
+
+# The commission's gap-check list (#31): the operations Marque reaches for, in
+# the order the reference snippets must cover them.
+OPERATIONS = (
+    "List by label",
+    "Read an issue",
+    "Parent",
+    "Blocking",
+    "Count open blockers",
+    "Assign / unassign",
+    "Comment",
+    "Apply / remove labels",
+    "Close",
+    "Open a PR",
+    "Merge a PR",
+    "Read PR approval",
+    "Orchestrator identity",
+)
+TRACKERS = ("github", "gitlab", "gitea", "local")
+
+
+class TrackerSnippetTest(unittest.TestCase):
+    def test_each_snippet_covers_every_operation(self):
+        for tracker in TRACKERS:
+            text = (REFERENCE_DIR / "trackers" / f"{tracker}.md").read_text()
+            for operation in OPERATIONS:
+                with self.subTest(tracker=tracker, operation=operation):
+                    self.assertIn(f"\n- **{operation}**", text)
+
+
+class CommissionPointersTest(unittest.TestCase):
+    def test_the_commission_points_at_every_tracker_snippet(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for tracker in TRACKERS:
+            with self.subTest(tracker=tracker):
+                self.assertIn(f"reference/trackers/{tracker}.md", text)
