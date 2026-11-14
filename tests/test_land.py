@@ -357,5 +357,96 @@ class NoForcePushTest(unittest.TestCase):
             self.assertFalse(l.calls.exists())
 
 
+# --- pr mode: check and finish ---------------------------------------------
+
+
+def landing_env(extra=None):
+    e = {k: v for k, v in os.environ.items() if k != "MARQUE_LAND_CRASH_AFTER"}
+    e.update(extra or {})
+    return e
+
+
+def check(l, await_approval=False, env=None):
+    cmd = [
+        sys.executable,
+        str(LAND),
+        "check",
+        "--issue",
+        str(ISSUE),
+        "--branch",
+        BRANCH,
+        "--worktree",
+        str(l.wt),
+        "--target",
+        "master",
+        "--state-dir",
+        str(l.state),
+        "--suite-green",
+        str(l.suite),
+        "--resolution",
+        str(l.resolution),
+        "--repo",
+        str(l.repo),
+    ]
+    if await_approval:
+        cmd.append("--await-approval")
+    return subprocess.run(cmd, capture_output=True, text=True, env=landing_env(env))
+
+
+def branch_tip(l):
+    return sh("git", "rev-parse", BRANCH, cwd=l.repo)
+
+
+class CheckTest(unittest.TestCase):
+    def test_check_pushes_the_branch_and_holds_the_ticket_for_landing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+            local_before = sh("git", "rev-parse", "master", cwd=l.repo)
+            tip = branch_tip(l)
+
+            r = check(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(r.stdout, "pushed #7 %s\n" % tip)
+            # The branch is on origin at its local tip; nothing was merged, so
+            # master is untouched both on origin and in the main checkout.
+            self.assertEqual(sh("git", "ls-remote", "--heads", "origin", BRANCH, cwd=l.repo).split()[0], tip)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.repo), local_before)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+
+    def test_await_approval_leaves_the_ticket_waiting_on_the_tracker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+
+            r = check(l, await_approval=True)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                ledger("get", "7", "state", state=l.state).stdout.strip(), "awaiting-approval"
+            )
+
+    def test_a_broken_precondition_stops_before_the_branch_is_pushed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            dirty_worktree(l)
+
+            r = check(l)
+
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("worktree has uncommitted changes", r.stderr)
+            self.assertEqual(sh("git", "ls-remote", "--heads", "origin", BRANCH, cwd=l.repo), "")
+            self.assertNotEqual(ledger("get", "7", state=l.state).returncode, 0)
+
+    def test_check_and_finish_help_exit_zero(self):
+        for args in (["check", "--help"],):
+            with self.subTest(args=args):
+                r = subprocess.run(
+                    [sys.executable, str(LAND), *args], capture_output=True, text=True
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
