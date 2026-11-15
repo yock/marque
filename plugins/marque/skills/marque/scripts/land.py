@@ -166,6 +166,24 @@ def clean_up(a):
         git(a.repo, "branch", "-D" if a.merge_style == "squash" else "-d", a.branch)
 
 
+def read_record(path):
+    """A suite record's keys: one `key: value` per line, the first occurrence wins.
+
+    Unknown keys are kept and ignored by the caller, so a later writer can add
+    keys without breaking this reader.
+    """
+    values = {}
+    for line in Path(path).read_text().splitlines():
+        if not line.strip():
+            continue
+        key, sep, value = line.partition(": ")
+        if not sep:
+            continue
+        if key not in values:
+            values[key] = value
+    return values
+
+
 def preconditions(a):
     """Every fresh-run check, as a list of failures; empty when the landing may start."""
     fails = []
@@ -205,20 +223,34 @@ def preconditions(a):
         except GitError as e:
             fails.append("cannot inspect the worktree %s: %s" % (wt, e))
 
-    if not a.suite_green.exists():
-        fails.append("the suite log %s is missing" % a.suite_green)
-    elif a.suite_green.stat().st_size == 0:
-        fails.append("the suite log %s is empty" % a.suite_green)
+    # Green is bound to the tree: a passing integration record names the tree
+    # being landed. Only a record under the state dir's logs/ gates a landing;
+    # an implementer's own record never does.
+    logs = Path(a.state_dir).resolve() / "logs"
+    if not a.suite_record.exists():
+        fails.append("the suite record %s is missing" % a.suite_record)
     else:
+        record = read_record(a.suite_record)
+        if logs not in a.suite_record.resolve().parents:
+            fails.append(
+                "the suite record %s is not an integration record under %s"
+                % (a.suite_record, logs)
+            )
+        if record.get("verdict") != "pass":
+            fails.append(
+                "the suite record %s has verdict %r, not pass"
+                % (a.suite_record, record.get("verdict"))
+            )
         try:
-            tip_time = int(git(a.repo, "log", "-1", "--format=%ct", a.branch))
-            if a.suite_green.stat().st_mtime <= tip_time:
-                fails.append(
-                    "the suite log %s predates the branch tip (%s was committed later)"
-                    % (a.suite_green, a.branch)
-                )
+            tree = git(a.repo, "rev-parse", "%s^{tree}" % a.branch)
         except GitError as e:
-            fails.append("cannot read the time of %s's tip: %s" % (a.branch, e))
+            fails.append("cannot read %s's tree: %s" % (a.branch, e))
+        else:
+            if record.get("tree") != tree:
+                fails.append(
+                    "the suite record's tree %s is not %s's tree %s"
+                    % (record.get("tree"), a.branch, tree)
+                )
 
     # Safeguard 3: the resolution comment is settled before anything changes.
     if not a.resolution.exists():
@@ -487,7 +519,12 @@ def parse_args(argv):
     p.add_argument("--target", required=True, metavar="T", help="the branch to land into")
     p.add_argument("--gist", required=True, metavar="TEXT", help="the merge message's summary")
     p.add_argument("--state-dir", required=True, metavar="DIR", help="where the ledger lives")
-    p.add_argument("--suite-green", required=True, metavar="LOG", help="the green suite's log")
+    p.add_argument(
+        "--suite-record",
+        required=True,
+        metavar="FILE",
+        help="the integration run's suite record",
+    )
     p.add_argument("--resolution", required=True, metavar="FILE", help="the resolution comment")
     p.add_argument("--comment-cmd", required=True, metavar="CMD", help="posts the resolution comment")
     p.add_argument("--close-cmd", required=True, metavar="CMD", help="closes the ticket")
@@ -502,7 +539,12 @@ def parse_args(argv):
         epilog="exit codes: 0 pushed, 3 a precondition failed, 1 a step failed",
     )
     add_pr_common(p)
-    p.add_argument("--suite-green", required=True, metavar="LOG", help="the green suite's log")
+    p.add_argument(
+        "--suite-record",
+        required=True,
+        metavar="FILE",
+        help="the integration run's suite record",
+    )
     p.add_argument(
         "--await-approval",
         action="store_true",
@@ -534,7 +576,7 @@ def parse_args(argv):
 
 def main(argv=None):
     a = parse_args(argv)
-    for name in ("repo", "worktree", "resolution", "suite_green"):
+    for name in ("repo", "worktree", "resolution", "suite_record"):
         if getattr(a, name, None):
             setattr(a, name, Path(getattr(a, name)).resolve())
     if a.cmd == "direct":
