@@ -8,8 +8,10 @@ import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-LAND = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "land.py"
-LEDGER = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "ledger.py"
+SCRIPTS = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts"
+LAND = SCRIPTS / "land.py"
+LEDGER = SCRIPTS / "ledger.py"
+SUITE = SCRIPTS / "suite.py"
 
 ISSUE = 7
 BRANCH = "orch-7"
@@ -44,6 +46,11 @@ class Landing:
         return 'echo "close $MARQUE_ISSUE" >> %s' % shlex.quote(str(self.calls))
 
 
+def write_record(path, **keys):
+    """A suite record: one `key: value` per line, in the order given."""
+    path.write_text("".join("%s: %s\n" % item for item in keys.items()))
+
+
 def make_landing(tmp):
     l = Landing()
     l.root = Path(tmp)
@@ -52,7 +59,6 @@ def make_landing(tmp):
     l.wt = l.root / "wt"
     l.state = l.root / "state"
     l.resolution = l.root / "resolution.md"
-    l.suite = l.root / "suite.log"
     l.calls = l.root / "calls"
 
     sh("git", "init", "--bare", "--quiet", str(l.origin), cwd=l.root)
@@ -69,20 +75,27 @@ def make_landing(tmp):
     (l.wt / "numbers.txt").write_text("one\ntwo\n")
     sh("git", "commit", "--quiet", "-am", GIST, cwd=l.wt)
 
-    # The suite log must post-date the branch tip; commit times are whole seconds,
-    # so put the log a minute into the future rather than racing the clock.
-    l.suite.write_text("OK 12 tests\n")
-    l.tip_time = int(sh("git", "log", "-1", "--format=%ct", cwd=l.wt))
-    os.utime(l.suite, (l.tip_time + 60, l.tip_time + 60))
-
     l.resolution.write_text(RESOLUTION_TEXT)
     l.state.mkdir()
+    # The integration run's record, under the state dir's logs/, naming the branch's tree.
+    l.tree = sh("git", "rev-parse", "%s^{tree}" % BRANCH, cwd=l.repo)
+    l.record = l.state / "logs" / "full-suite-7.record"
+    l.record.parent.mkdir()
+    write_record(
+        l.record,
+        tree=l.tree,
+        commit=sh("git", "rev-parse", BRANCH, cwd=l.repo),
+        runner="local",
+        started="2026-01-01T00:00:00Z",
+        ended="2026-01-01T00:01:00Z",
+        **{"exit.1": "0"},
+        verdict="pass",
+        cost="0",
+    )
     return l
 
 
-def land(l, env=None, merge_style=None, comment_cmd=None, close_cmd=None):
-    e = {k: v for k, v in os.environ.items() if k != "MARQUE_LAND_CRASH_AFTER"}
-    e.update(env or {})
+def direct_args(l, comment_cmd=None, close_cmd=None, merge_style=None, suite_flag="--suite-record"):
     cmd = [
         sys.executable,
         str(LAND),
@@ -99,8 +112,8 @@ def land(l, env=None, merge_style=None, comment_cmd=None, close_cmd=None):
         GIST,
         "--state-dir",
         str(l.state),
-        "--suite-green",
-        str(l.suite),
+        suite_flag,
+        str(l.record),
         "--resolution",
         str(l.resolution),
         "--comment-cmd",
@@ -112,6 +125,13 @@ def land(l, env=None, merge_style=None, comment_cmd=None, close_cmd=None):
     ]
     if merge_style is not None:
         cmd += ["--merge-style", merge_style]
+    return cmd
+
+
+def land(l, env=None, merge_style=None, comment_cmd=None, close_cmd=None):
+    e = {k: v for k, v in os.environ.items() if k != "MARQUE_LAND_CRASH_AFTER"}
+    e.update(env or {})
+    cmd = direct_args(l, comment_cmd=comment_cmd, close_cmd=close_cmd, merge_style=merge_style)
     return subprocess.run(cmd, capture_output=True, text=True, env=e)
 
 
@@ -123,6 +143,27 @@ class HelpTest(unittest.TestCase):
                     [sys.executable, str(LAND), *args], capture_output=True, text=True
                 )
                 self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class SuiteRecordFlagTest(unittest.TestCase):
+    def test_the_old_suite_green_flag_is_gone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+
+            r = subprocess.run(
+                direct_args(l, suite_flag="--suite-green"),
+                capture_output=True,
+                text=True,
+                env=landing_env(),
+            )
+            self.assertEqual(r.returncode, 2, r.stderr)
+
+            r = subprocess.run(
+                [sys.executable, str(LAND), "direct", "--help"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotIn("suite-green", r.stdout)
 
 
 class HappyPathTest(unittest.TestCase):
@@ -152,6 +193,8 @@ class HappyPathTest(unittest.TestCase):
             self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
             self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
             self.assertFalse((l.state / "landing" / "7.log").exists())
+            # The merge put on the target exactly the tree the record tested.
+            self.assertEqual(sh("git", "rev-parse", "master^{tree}", cwd=l.origin), l.tree)
 
 
 def commit_elsewhere(l):
@@ -180,12 +223,32 @@ def dirty_worktree(l):
     (l.wt / "numbers.txt").write_text("one\nsix\n")
 
 
-def suite_log_missing(l):
-    l.suite.unlink()
+def suite_record_missing(l):
+    l.record.unlink()
 
 
-def suite_log_stale(l):
-    os.utime(l.suite, (l.tip_time - 60, l.tip_time - 60))
+def suite_record_for_another_tree(l):
+    write_record(
+        l.record,
+        tree=sh("git", "rev-parse", "master^{tree}", cwd=l.repo),
+        verdict="pass",
+    )
+
+
+def suite_record_failed(l):
+    write_record(l.record, tree=l.tree, verdict="fail")
+
+
+def suite_record_interrupted(l):
+    # suite.py writes the opening keys before the command runs, so a record from
+    # an interrupted run has no verdict line at all.
+    write_record(l.record, tree=l.tree, runner="local")
+
+
+def suite_record_outside_logs(l):
+    outside = l.state / "full-suite-7.record"
+    outside.write_text(l.record.read_text())
+    l.record = outside
 
 
 def resolution_missing(l):
@@ -199,8 +262,27 @@ class PreconditionTest(unittest.TestCase):
             ("branch does not contain master", commit_on_master, "does not contain master"),
             ("dirty repo", dirty_repo, "repo has uncommitted changes"),
             ("dirty worktree", dirty_worktree, "worktree has uncommitted changes"),
-            ("missing suite log", suite_log_missing, "suite log"),
-            ("suite log older than the branch tip", suite_log_stale, "predates"),
+            ("missing suite record", suite_record_missing, "suite record"),
+            (
+                "record for another tree",
+                suite_record_for_another_tree,
+                "is not orch-7's tree",
+            ),
+            (
+                "record with a failing verdict",
+                suite_record_failed,
+                "verdict 'fail', not pass",
+            ),
+            (
+                "record with no verdict",
+                suite_record_interrupted,
+                "verdict None, not pass",
+            ),
+            (
+                "record outside the logs directory",
+                suite_record_outside_logs,
+                "is not an integration record under",
+            ),
             ("missing resolution file", resolution_missing, "resolution file"),
         ]
         for name, mutate, phrase in cases:
@@ -222,7 +304,7 @@ class PreconditionTest(unittest.TestCase):
                 self.assertEqual(sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo), BRANCH)
 
 
-STEPS = ["landing", "merged", "pushed", "confirmed", "commented", "closed", "cleaned"]
+STEPS = ["landing", "merged", "verified", "pushed", "confirmed", "commented", "closed", "cleaned"]
 
 
 class CrashAndResumeTest(unittest.TestCase):
@@ -331,6 +413,8 @@ class SquashTest(unittest.TestCase):
             # One parent: the branch's work landed as a single commit on master.
             self.assertEqual(len(sh("git", "log", "-1", "--format=%P", "master", cwd=l.origin).split()), 1)
             self.assertEqual(sh("git", "show", "master:numbers.txt", cwd=l.origin), "one\ntwo")
+            # The squash put on the target exactly the tree the record tested.
+            self.assertEqual(sh("git", "rev-parse", "master^{tree}", cwd=l.origin), l.tree)
             self.assertFalse(l.wt.exists())
             self.assertEqual(
                 sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
@@ -357,6 +441,75 @@ class NoForcePushTest(unittest.TestCase):
             self.assertFalse(l.calls.exists())
 
 
+def commit_on_target(l):
+    """A commit on the repo's local target, on top of the merge the crash left."""
+    (l.repo / "numbers.txt").write_text("one\nseven\n")
+    sh("git", "commit", "--quiet", "-am", "After the merge", cwd=l.repo)
+
+
+class VerifiedTreeTest(unittest.TestCase):
+    def test_a_target_that_moved_after_the_merge_stops_before_the_push(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l, env={"MARQUE_LAND_CRASH_AFTER": "merged"})
+            self.assertEqual(r.returncode, 70, r.stderr)
+            commit_on_target(l)
+            target_tree = sh("git", "rev-parse", "master^{tree}", cwd=l.repo)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn(
+                "the target's tree %s is not the tested tree %s" % (target_tree, l.tree),
+                r.stderr,
+            )
+            # Nothing was pushed and the ticket was not touched.
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertFalse(l.calls.exists())
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            self.assertNotIn("verified", (l.state / "landing" / "7.log").read_text())
+
+    def test_a_resume_after_the_tree_check_checks_the_tree_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l, env={"MARQUE_LAND_CRASH_AFTER": "verified"})
+            self.assertEqual(r.returncode, 70, r.stderr)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+            commit_on_target(l)
+            target_tree = sh("git", "rev-parse", "master^{tree}", cwd=l.repo)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn(
+                "the target's tree %s is not the tested tree %s" % (target_tree, l.tree),
+                r.stderr,
+            )
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertFalse(l.calls.exists())
+
+
+class RealSuiteRecordTest(unittest.TestCase):
+    def test_a_record_written_by_the_suite_wrapper_lands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            l.record.unlink()
+
+            r = subprocess.run(
+                [sys.executable, str(SUITE), "run", "--record", str(l.record), "--", "true"],
+                cwd=str(l.wt),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+
+
 # --- pr mode: check and finish ---------------------------------------------
 
 
@@ -381,8 +534,8 @@ def check(l, await_approval=False, env=None):
         "master",
         "--state-dir",
         str(l.state),
-        "--suite-green",
-        str(l.suite),
+        "--suite-record",
+        str(l.record),
         "--resolution",
         str(l.resolution),
         "--repo",
@@ -495,6 +648,23 @@ class CheckTest(unittest.TestCase):
             self.assertIn("worktree has uncommitted changes", r.stderr)
             self.assertEqual(sh("git", "ls-remote", "--heads", "origin", BRANCH, cwd=l.repo), "")
             self.assertNotEqual(ledger("get", "7", state=l.state).returncode, 0)
+
+    def test_a_bad_record_stops_before_the_branch_is_pushed(self):
+        cases = [
+            ("record for another tree", suite_record_for_another_tree, "is not orch-7's tree"),
+            ("record with a failing verdict", suite_record_failed, "verdict 'fail', not pass"),
+        ]
+        for name, mutate, phrase in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                l = make_landing(tmp)
+                mutate(l)
+
+                r = check(l)
+
+                self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn(phrase, r.stderr)
+                self.assertEqual(sh("git", "ls-remote", "--heads", "origin", BRANCH, cwd=l.repo), "")
+                self.assertNotEqual(ledger("get", "7", state=l.state).returncode, 0)
 
     def test_check_and_finish_help_exit_zero(self):
         for args in (["check", "--help"], ["finish", "--help"]):

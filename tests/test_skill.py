@@ -377,3 +377,26 @@ class OperationsReferenceTest(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+
+
+# #42: green is bound to the tree (ADR 0001). The prose names the record flag and
+# the seventh safeguard, and offers no second way to be green.
+class SuiteRecordWordingTest(unittest.TestCase):
+    def test_the_skill_and_the_landing_reference_name_the_suite_record_flag(self):
+        for path in (SKILL, REFERENCE_DIR / "landing.md"):
+            with self.subTest(path=path.name):
+                self.assertIn("--suite-record", path.read_text())
+
+    def test_the_landing_reference_names_the_seventh_safeguard(self):
+        text = (REFERENCE_DIR / "landing.md").read_text()
+        for marker in ("seven safeguards", "The landed tree is the tested tree"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_no_prose_still_offers_the_old_green(self):
+        paths = [SKILL, *sorted(REFERENCE_DIR.glob("*.md"))]
+        for path in paths:
+            text = path.read_text()
+            for retired in ("--suite-green", "mtime", "only in docs"):
+                with self.subTest(path=path.name, retired=retired):
+                    self.assertNotIn(retired, text)

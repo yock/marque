@@ -22,7 +22,7 @@ A session silent for over **the stall hour** (default 1 hour, overridable only i
 - When both sides only **appended** to a long file (tests, registries) and git interleaves the two blocks into several hunks, check whether one side only appended to the merge base; if so, the clean result is the other side's file plus that side's appended tail.
 - After merging the target branch, run the tests of the areas the merge touched before the full suite: they fail fastest.
 - A test from a ticket that landed after this branch forked can break on the branch's new default behaviour: fix it on the branch, as the branch's own sweep did for older tests.
-- The developer lands on the target branch too. Right before landing, re-check that the branch contains the target; if the target moved only in docs (no code, build files or tests), the landing needs no new test run — check with `git diff --name-only`.
+- The developer lands on the target branch too. Right before landing, re-check that the branch contains the target. If the target has moved, merge it again and rerun the full suite: the record must name the tree that lands, whatever the change touched.
 
 ## Shared machine
 

@@ -14,6 +14,8 @@ Placeholders:
   {{DOMAIN_DOCS}}     the project's domain docs, as named by its
                       docs/agents/domain.md or AGENTS.md (e.g. GLOSSARY.md,
                       docs/adr/)
+  {{SUITE}}           the absolute path of Marque's `scripts/suite.py`
+  {{RUNS_DIR}}        the ticket's runs directory, `<state dir>/runs/<n>`
   {{BRIEF_EXTENSION}} the project's brief extension, verbatim, or None.
 -->
 
@@ -31,7 +33,7 @@ The ticket context above is complete. You don't need the issue tracker, and you 
 
 ## Build and test
 
-Read the build, test and repo rules in the project's `AGENTS.md` (or `CLAUDE.md`) and the docs it points to before you start, and run the full suite the way they say.
+Read the build, test and repo rules in the project's `AGENTS.md` (or `CLAUDE.md`) and the docs it points to before you start. Run the full suite through Marque's wrapper, in the foreground: `{{SUITE}} run --record {{RUNS_DIR}}/<run>.record -- <the full-suite command AGENTS.md gives>`, with a fresh `<run>` name each time (`1`, `2`, …). It refuses uncommitted changes, so commit first. Its record informs the review; it never gates landing.
 
 ## Brief extension
 
