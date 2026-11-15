@@ -490,6 +490,26 @@ class VerifiedTreeTest(unittest.TestCase):
             self.assertFalse(l.calls.exists())
 
 
+class RealSuiteRecordTest(unittest.TestCase):
+    def test_a_record_written_by_the_suite_wrapper_lands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            l.record.unlink()
+
+            r = subprocess.run(
+                [sys.executable, str(SUITE), "run", "--record", str(l.record), "--", "true"],
+                cwd=str(l.wt),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+
+
 # --- pr mode: check and finish ---------------------------------------------
 
 
