@@ -865,7 +865,7 @@ class SquashFinishTest(unittest.TestCase):
             self.assertFalse(l.wt.exists())
 
 
-FINISH_STEPS = ["confirmed", "synced", "closed", "commented", "cleaned"]
+FINISH_STEPS = ["confirmed", "verified", "synced", "closed", "commented", "cleaned"]
 
 
 class FinishCrashAndResumeTest(unittest.TestCase):
@@ -901,6 +901,34 @@ class FinishCrashAndResumeTest(unittest.TestCase):
                 self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
                 self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
                 self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+
+
+class FinishMismatchResumeTest(unittest.TestCase):
+    def test_a_resume_after_the_tree_check_still_completes_and_exits_4(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            move_master(l)
+            merged = merge_pr(l)
+            landed_tree = sh("git", "rev-parse", "%s^{tree}" % merged, cwd=l.origin)
+
+            r = finish(l, env={"MARQUE_LAND_CRASH_AFTER": "verified"})
+
+            self.assertEqual(r.returncode, 70, r.stderr)
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 4, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+            self.assertIn(
+                "the tree that landed %s is not the tested tree %s" % (landed_tree, l.tree),
+                r.stderr,
+            )
+            self.assertEqual(l.calls.read_text(), "close 7\ncomment 7 Finished #7: the worktree adds two.\n")
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
+            self.assertFalse(l.wt.exists())
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
 
 
 class FinishAlreadyLandedTest(unittest.TestCase):
