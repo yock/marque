@@ -44,7 +44,9 @@ One pull request per ticket, never stacked, and a waiting PR is never rebased.
 1. `land.py check` runs the preconditions and pushes the branch. Its flags: `land.py check --help`.
 2. Open the PR with the tracker doc's command. Its body summarizes the ticket, links it and says `Closes #n`.
 3. The orchestrator merges once the checks pass. Under the opt-in "the developer approves", it runs step 1 as `land.py check --await-approval` instead, which sets the ledger to `awaiting-approval`, and checks open approvals first on every pass; approvals land before new dispatches. A cap on waiting PRs (default: the concurrency) holds dispatch and fires a notify event, and dependents stay blocked until the PR lands. Reading approval state may need a convention gap-filled at commission.
-4. `land.py finish` confirms the merge on origin, confirms the close, comments, cleans up and updates the ledger — clearing `awaiting-approval` to `landing`, then `landed`. Its flags: `land.py finish --help`.
+4. `land.py finish --suite-record <dir>/logs/full-suite-N.record` confirms the merge on origin, verifies the tree that landed, confirms the close, comments, cleans up and updates the ledger — clearing `awaiting-approval` to `landing`, then `landed`. Its flags: `land.py finish --help`.
+
+**The tree that landed.** The forge does the merge, so `land.py` can't check the tree before the push. Instead, `finish` compares the tree of the merge commit on origin with the suite record's tree. On a mismatch (the forge merged onto a target that had moved), the landing still completes, and `finish` names both trees and exits **4**. A landing can't be undone, but it can be verified at once. On exit 4, the orchestrator runs the full suite on the target through `scripts/suite.py run --record <dir>/logs/target-N.record`, as a background command that wakes you, and handles the result under the target-red rule: if the suite is red, stop dispatching and fix the target first.
 
 ## After a crash
 
