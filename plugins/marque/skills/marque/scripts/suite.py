@@ -41,7 +41,9 @@ def now():
 def log_of(record):
     """The log beside the record: its path with the suffix replaced by .log."""
     path = Path(record)
-    return path.with_suffix(".log") if path.suffix else path.with_name(path.name + ".log")
+    if not path.suffix:
+        return path.with_name(path.name + ".log")
+    return path.with_suffix(".log")
 
 
 def write_lines(f, lines):
@@ -59,6 +61,13 @@ def status_of(returncode):
 
 def run(a):
     """Run the command and write the suite record; return the process exit code."""
+    command = a.command[1:] if a.command[:1] == ["--"] else a.command
+    if not command:
+        print(
+            "suite.py: refusing to run: a command after -- is required",
+            file=sys.stderr,
+        )
+        return 2
     cwd = Path.cwd()
     record = Path(a.record)
     try:
@@ -73,11 +82,13 @@ def run(a):
         tree = git(cwd, "rev-parse", "HEAD^{tree}")
         commit = git(cwd, "rev-parse", "HEAD")
     except OSError as e:
-        print("suite.py: refusing to run: %s is not inside a git worktree: %s" % (cwd, e), file=sys.stderr)
+        print(
+            "suite.py: refusing to run: %s is not inside a git worktree: %s" % (cwd, e),
+            file=sys.stderr,
+        )
         return 2
 
     log = log_of(record)
-    command = a.command[1:] if a.command[:1] == ["--"] else a.command
     record.parent.mkdir(parents=True, exist_ok=True)
     with open(str(record), "w") as f:
         write_lines(

@@ -124,3 +124,38 @@ class RecordFormatTest(unittest.TestCase):
             log = Path(tmp) / "state" / "logs" / "full-suite-1.log"
             self.assertEqual(values["log"], str(log))
             self.assertIn("hello-from-suite", log.read_text())
+
+
+class DirtyWorktreeTest(unittest.TestCase):
+    def test_a_dirty_worktree_is_refused_and_nothing_is_written(self):
+        cases = {
+            "modified": lambda repo: (repo / "file.txt").write_text("one\ntwo\n"),
+            "untracked": lambda repo: (repo / "new.txt").write_text("new\n"),
+        }
+        for kind, dirty in cases.items():
+            with self.subTest(kind=kind):
+                with tempfile.TemporaryDirectory() as tmp:
+                    repo, record = make_repo(tmp)
+                    marker = Path(tmp) / "ran"
+                    dirty(repo)
+                    r = run_suite(
+                        repo, record, ["sh", "-c", 'touch "$1"', "sh", str(marker)]
+                    )
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertFalse(record.exists())
+                    self.assertFalse(marker.exists())
+
+
+class NoCommandTest(unittest.TestCase):
+    def test_no_command_after_the_separator_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_repo(tmp)
+            r = subprocess.run(
+                [sys.executable, str(SUITE), "run", "--record", str(record)],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 2, r.stderr)
+            self.assertIn("--", r.stderr)
+            self.assertFalse(record.exists())
