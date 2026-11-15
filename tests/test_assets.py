@@ -41,3 +41,9 @@ class ExploreTest(unittest.TestCase):
         header, body = split_header("explore.md")
         self.assertNotIn("tea ", header + body)
         self.assertNotIn("{{API}}", header + body)
+
+
+class BriefTailSuiteTest(unittest.TestCase):
+    def test_the_tail_runs_the_suite_through_the_recording_wrapper(self):
+        header, body = split_header("brief-tail.md")
+        self.assertIn("{{SUITE}} run --record {{RUNS_DIR}}/", body)

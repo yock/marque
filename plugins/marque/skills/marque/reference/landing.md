@@ -10,14 +10,15 @@ The target branch is a term of the commission: the repo's default branch unless 
 
 Land through `land.py`, as one guarded unit. A hand-chained landing (`checks && merge …; comment; remove`) runs the steps after `;` even when a precondition fails, and so comments and closes a ticket whose merge never happened.
 
-`land.py` enforces the six safeguards, core in both modes:
+`land.py` enforces the seven safeguards, core in both modes:
 
-1. **Preconditions:** the target branch equals origin, the branch contains the target, the tree is clean, and the integration run's full suite is green.
+1. **Preconditions:** the target branch equals origin, the branch contains the target, the tree is clean, and a passing suite record for the branch's tree: an integration record under the state dir's `logs/`, whose `verdict` is `pass` and whose `tree` is `<branch>^{tree}`.
 2. **One guarded unit:** a failed precondition exits 3 with nothing changed.
 3. **Resolution comment first:** write it to a file before the guarded part runs.
 4. **Ledger `landing`** for the whole run.
 5. **No force-push.**
 6. **Worktree and branch removed only after the merge is confirmed on origin.**
+7. **The landed tree is the tested tree:** after the merge and before the push, the target's tree must equal the record's tree. A mismatch stops the landing (exit 1) before anything is pushed, and a resume checks it again.
 
 ## Direct mode
 
@@ -27,7 +28,7 @@ From the main checkout, with the target branch checked out:
 scripts/land.py direct --issue N --branch marque-N \
   --worktree <repo>/.marque/worktrees/marque-N --target <target> \
   --gist "<the gist>" --state-dir <dir> \
-  --suite-green <dir>/logs/full-suite-N.log --resolution <dir>/landing/N.md \
+  --suite-record <dir>/logs/full-suite-N.record --resolution <dir>/landing/N.md \
   --comment-cmd '<issue-tracker.md’s Comment on an issue: $MARQUE_ISSUE is the number, "$MARQUE_RESOLUTION" the body file>' \
   --close-cmd '<issue-tracker.md’s Close: $MARQUE_ISSUE is the number>'
 ```
