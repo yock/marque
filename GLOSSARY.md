@@ -50,6 +50,17 @@ _Avoid_: worker, subagent
 The file an implementer works from: the ticket, its relevant sources, the design fixed at its seams, and the shared rules.
 _Avoid_: prompt
 
+**Suite record**:
+The record of one full-suite run: the tree it tested and its verdict. A ticket branch is green when a passing suite record names the tree it would land.
+_Avoid_: green log, suite log
+
+**Runner**:
+Where a suite runs: the local machine, or compute rented from a provider. Each runner has a rate, zero for the local machine.
+
+**Paid compute**:
+Suite runs on a runner with a non-zero rate, counted against the commission's cap.
+_Avoid_: budget, credits
+
 **Landing**:
 Merging an integrated, green ticket branch onto the target branch, directly or through the ticket's pull request, then making sure its ticket is closed. The target branch is a term of the commission, the repo's main branch unless the developer names another. A ticket whose pull request is still open is not landed.
 _Avoid_: shipping, merging (for the whole act)
