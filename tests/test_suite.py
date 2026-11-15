@@ -49,6 +49,18 @@ class HelpTest(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
 
 
+class StdlibOnlyTest(unittest.TestCase):
+    def test_the_script_runs_without_site_packages(self):
+        # -I isolates from the environment and -S drops site-packages: the
+        # script must still start, so it imports nothing but the stdlib.
+        r = subprocess.run(
+            [sys.executable, "-I", "-S", str(SUITE), "--help"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 class TreeBeforeCommandTest(unittest.TestCase):
     def test_the_record_names_the_tree_before_the_command_runs(self):
         # The spec's point: a tree written down after the run would be a claim,
