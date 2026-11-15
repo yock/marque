@@ -19,8 +19,9 @@ dies part-way is finished by re-running the same command; no step happens twice.
 The ledger says `landing` from before the merge until every step, clean-up
 included, is done, and then `landed` with the merge commit.
 
-Exit codes: 0 landed (or already landed); 3 a precondition failed and nothing
-changed; 1 a step failed mid-landing.
+Exit codes: 0 landed (or already landed); 4 landed, but the tree that landed is
+not the tested tree; 3 a precondition failed and nothing changed; 1 a step failed
+mid-landing.
 """
 import argparse
 import os
@@ -487,6 +488,18 @@ def finish_steps(a, journal):
     issue = str(a.issue)
     try:
         hash_ = journal.get("confirmed")
+        if not journal.has("verified"):
+            # The forge did the merge, so the check comes after it: the tree of
+            # the merge commit on origin against the tree the record tested.
+            landed = git(a.repo, "rev-parse", "%s^{tree}" % hash_)
+            tested = (
+                read_record(a.suite_record).get("tree") if a.suite_record.exists() else None
+            )
+            journal.record(
+                "verified",
+                "match" if landed == tested else "mismatch %s %s" % (landed, tested),
+            )
+            crash("verified")
         if not journal.has("synced"):
             git(a.repo, "merge", "--ff-only", "%s/%s" % (a.remote, a.target))
             journal.record("synced")
@@ -506,6 +519,7 @@ def finish_steps(a, journal):
             clean_up(a)
             journal.record("cleaned")
             crash("cleaned")
+        verified = journal.get("verified")
         # The merge is on origin and every step, clean-up included, is done.
         set_ledger(a.state_dir, issue, "landed", landed=hash_)
         journal.path.unlink()
@@ -513,6 +527,14 @@ def finish_steps(a, journal):
         print("land.py: step failed: %s" % e, file=sys.stderr)
         return 1
     print("landed #%s %s" % (issue, hash_))
+    if verified.startswith("mismatch"):
+        _, landed, tested = verified.split(" ")
+        print(
+            "land.py: the tree that landed %s is not the tested tree %s (from %s): "
+            "run the full suite on %s" % (landed, tested, a.suite_record, a.target),
+            file=sys.stderr,
+        )
+        return 4
     return 0
 
 
@@ -582,7 +604,8 @@ def parse_args(argv):
         "finish",
         help="confirm the pull request merged, then sync, close, comment and clean up",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="exit codes: 0 landed, 3 a precondition failed, 1 a step failed mid-landing",
+        epilog="exit codes: 0 landed, 4 landed but the tree that landed is not the tested tree, "
+        "3 a precondition failed, 1 a step failed mid-landing",
     )
     add_pr_common(p)
     p.add_argument(
