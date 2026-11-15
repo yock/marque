@@ -107,6 +107,8 @@ def run(a):
                 "ended: %s" % now(),
                 "exit.1: %d" % status,
                 "verdict: %s" % verdict,
+                "cost: 0",
+                "log: %s" % log.resolve(),
             ],
         )
     return 0 if verdict == "pass" else 1

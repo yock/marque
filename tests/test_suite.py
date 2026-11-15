@@ -97,3 +97,30 @@ class MissingProgramTest(unittest.TestCase):
             lines = record.read_text().splitlines()
             self.assertIn("exit.1: 127", lines)
             self.assertIn("verdict: fail", lines)
+
+
+class RecordFormatTest(unittest.TestCase):
+    def test_the_record_has_the_documented_keys_in_order_and_a_log_beside_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_repo(tmp)
+            r = run_suite(repo, record, ["sh", "-c", "echo hello-from-suite"])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            text = record.read_text()
+            lines = text.splitlines()
+            self.assertTrue(text.endswith("\n"), text)
+            for line in lines:
+                self.assertRegex(line, r"^[a-z0-9.]+: .+$")
+            self.assertEqual(
+                [line.split(": ", 1)[0] for line in lines],
+                ["tree", "commit", "runner", "started", "ended", "exit.1", "verdict", "cost", "log"],
+            )
+            values = dict(line.split(": ", 1) for line in lines)
+            self.assertEqual(values["commit"], sh("git", "rev-parse", "HEAD", cwd=repo))
+            self.assertEqual(values["cost"], "0")
+            stamp = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
+            self.assertRegex(values["started"], stamp)
+            self.assertRegex(values["ended"], stamp)
+            self.assertLessEqual(values["started"], values["ended"])
+            log = Path(tmp) / "state" / "logs" / "full-suite-1.log"
+            self.assertEqual(values["log"], str(log))
+            self.assertIn("hello-from-suite", log.read_text())
