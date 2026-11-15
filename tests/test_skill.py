@@ -81,6 +81,12 @@ class LandingReferenceTest(unittest.TestCase):
         for marker in ("--no-ff", "target branch", "land.py"):
             self.assertIn(marker, text)
 
+    def test_landing_describes_the_tree_that_landed_and_the_response(self):
+        text = (REFERENCE_DIR / "landing.md").read_text()
+        for marker in ("and exits **4**", "target-red rule", "suite.py run --record"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
 
 class AskingReferenceTest(unittest.TestCase):
     def test_asking_names_the_label_the_map_and_the_signal(self):
@@ -179,6 +185,10 @@ class CommissionReferenceTest(unittest.TestCase):
         for marker in ("Posted by Marque", "awaiting-approval"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+
+    def test_the_commission_recommends_the_up_to_date_setting_for_pr_mode(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        self.assertIn("branch must be up to date", text)
 
     def test_the_commission_writes_every_term_to_the_plan(self):
         text = (REFERENCE_DIR / "commission.md").read_text().lower()

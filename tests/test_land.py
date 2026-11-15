@@ -565,6 +565,8 @@ def finish(l, is_closed_cmd=None, merge_commit=None, merge_style=None, env=None)
         "master",
         "--state-dir",
         str(l.state),
+        "--suite-record",
+        str(l.record),
         "--resolution",
         str(l.resolution),
         "--comment-cmd",
@@ -695,6 +697,73 @@ class FinishBeforeMergeTest(unittest.TestCase):
             self.assertFalse(l.calls.exists())
 
 
+class FinishWithoutRecordTest(unittest.TestCase):
+    def test_finish_without_its_suite_record_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l, await_approval=True).returncode, 0)
+            merge_pr(l)
+            l.record.unlink()
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("the suite record %s is missing" % l.record, r.stderr)
+            # Nothing changed: the ledger still waits, there is no journal, the
+            # ticket was not touched and the worktree is still there.
+            self.assertEqual(
+                ledger("get", "7", "state", state=l.state).stdout.strip(), "awaiting-approval"
+            )
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+            self.assertFalse(l.calls.exists())
+            self.assertTrue(l.wt.exists())
+
+
+def move_master(l):
+    """origin's master moves on with a new file, so the PR still merges cleanly."""
+    other = l.root / "mover"
+    sh("git", "clone", "--quiet", str(l.origin), str(other), cwd=l.root)
+    sh("git", "config", "user.name", "Mover", cwd=other)
+    sh("git", "config", "user.email", "mover@example.com", cwd=other)
+    (other / "elsewhere.txt").write_text("elsewhere\n")
+    sh("git", "add", "elsewhere.txt", cwd=other)
+    sh("git", "commit", "--quiet", "-m", "Elsewhere", cwd=other)
+    sh("git", "push", "--quiet", "origin", "master", cwd=other)
+
+
+class FinishTreeMismatchTest(unittest.TestCase):
+    def test_finish_completes_the_landing_and_names_the_tree_that_landed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            move_master(l)
+            merged = merge_pr(l)
+            landed_tree = sh("git", "rev-parse", "%s^{tree}" % merged, cwd=l.origin)
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 4, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+            self.assertIn(
+                "the tree that landed %s is not the tested tree %s" % (landed_tree, l.tree),
+                r.stderr,
+            )
+            self.assertIn("run the full suite on master", r.stderr)
+            # The landing itself completed: closed, commented, cleaned, landed.
+            self.assertEqual(
+                l.calls.read_text(),
+                "close 7\ncomment 7 Finished #7: the worktree adds two.\n",
+            )
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
+            self.assertFalse(l.wt.exists())
+            self.assertEqual(
+                sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
+                "",
+            )
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+
+
 class FinishAfterMergeTest(unittest.TestCase):
     def test_finish_confirms_the_merge_then_closes_comments_and_cleans_up(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -774,7 +843,30 @@ class SquashFinishTest(unittest.TestCase):
             )
 
 
-FINISH_STEPS = ["confirmed", "synced", "closed", "commented", "cleaned"]
+    def test_a_squash_merge_that_landed_another_tree_still_completes_and_exits_4(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            move_master(l)
+            squashed = merge_pr(l, squash=True)
+            landed_tree = sh("git", "rev-parse", "%s^{tree}" % squashed, cwd=l.origin)
+
+            r = finish(l, merge_style="squash", merge_commit=squashed)
+
+            self.assertEqual(r.returncode, 4, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % squashed)
+            self.assertIn(
+                "the tree that landed %s is not the tested tree %s" % (landed_tree, l.tree),
+                r.stderr,
+            )
+            self.assertEqual(
+                ledger("get", "7", "state", state=l.state).stdout.strip(), "landed"
+            )
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), squashed)
+            self.assertFalse(l.wt.exists())
+
+
+FINISH_STEPS = ["confirmed", "verified", "synced", "closed", "commented", "cleaned"]
 
 
 class FinishCrashAndResumeTest(unittest.TestCase):
@@ -810,6 +902,34 @@ class FinishCrashAndResumeTest(unittest.TestCase):
                 self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
                 self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
                 self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+
+
+class FinishMismatchResumeTest(unittest.TestCase):
+    def test_a_resume_after_the_tree_check_still_completes_and_exits_4(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l).returncode, 0)
+            move_master(l)
+            merged = merge_pr(l)
+            landed_tree = sh("git", "rev-parse", "%s^{tree}" % merged, cwd=l.origin)
+
+            r = finish(l, env={"MARQUE_LAND_CRASH_AFTER": "verified"})
+
+            self.assertEqual(r.returncode, 70, r.stderr)
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 4, r.stderr)
+            self.assertEqual(r.stdout, "landed #7 %s\n" % merged)
+            self.assertIn(
+                "the tree that landed %s is not the tested tree %s" % (landed_tree, l.tree),
+                r.stderr,
+            )
+            self.assertEqual(l.calls.read_text(), "close 7\ncomment 7 Finished #7: the worktree adds two.\n")
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
+            self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), merged)
+            self.assertFalse(l.wt.exists())
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
 
 
 class FinishAlreadyLandedTest(unittest.TestCase):

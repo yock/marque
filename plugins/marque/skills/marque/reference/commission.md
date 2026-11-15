@@ -69,6 +69,8 @@ Agree every term with the developer and write this block to `plan.md`:
 
 Landing terms beyond the block — the target branch, the modes and their safeguards — are in `reference/landing.md`.
 
+For `pr` mode, recommend the forge's **branch must be up to date before merging** setting. With it, the forge never merges onto a target that moved after the integration run, so `finish`'s tree check (`reference/landing.md`) stays quiet.
+
 ## 6. `pr` with "the developer approves"
 
 **Read PR approval** was gap-checked in step 3. Now decide whether the term is possible: Marque's account must differ from the account that approves. Ask whether it does. If Marque's account is also the approving account, the term is **impossible**: an account can't approve its own PR. Offer having the orchestrator merge once the checks pass. Otherwise the term stands, and while a PR waits for approval the ledger reads `awaiting-approval`.
