@@ -748,6 +748,7 @@ class FinishTreeMismatchTest(unittest.TestCase):
                 "the tree that landed %s is not the tested tree %s" % (landed_tree, l.tree),
                 r.stderr,
             )
+            self.assertIn("run the full suite on master", r.stderr)
             # The landing itself completed: closed, commented, cleaned, landed.
             self.assertEqual(
                 l.calls.read_text(),
