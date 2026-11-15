@@ -66,3 +66,34 @@ class TreeBeforeCommandTest(unittest.TestCase):
             self.assertIn("tree: %s" % tree, lines)
             self.assertIn("runner: local", lines)
             self.assertFalse([line for line in lines if line.startswith("verdict:")], lines)
+
+
+class VerdictTest(unittest.TestCase):
+    def test_the_verdict_follows_the_command_exit_status(self):
+        # POSIX: true exits 0, false exits 1, `exit 7` exits 7.
+        cases = [
+            (["true"], 0, "pass", "0"),
+            (["false"], 1, "fail", "1"),
+            (["sh", "-c", "exit 7"], 1, "fail", "7"),
+        ]
+        for command, code, verdict, status in cases:
+            with self.subTest(command=command):
+                with tempfile.TemporaryDirectory() as tmp:
+                    repo, record = make_repo(tmp)
+                    r = run_suite(repo, record, command)
+                    self.assertEqual(r.returncode, code, r.stderr)
+                    lines = record.read_text().splitlines()
+                    self.assertIn("exit.1: %s" % status, lines)
+                    self.assertIn("verdict: %s" % verdict, lines)
+
+
+class MissingProgramTest(unittest.TestCase):
+    def test_a_missing_program_fails_with_the_shells_127(self):
+        # 127 is the shell's "command not found"; suite.py reports it the same way.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_repo(tmp)
+            r = run_suite(repo, record, ["/nonexistent/program"])
+            self.assertEqual(r.returncode, 1, r.stderr)
+            lines = record.read_text().splitlines()
+            self.assertIn("exit.1: 127", lines)
+            self.assertIn("verdict: fail", lines)

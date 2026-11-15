@@ -90,8 +90,26 @@ def run(a):
             ],
         )
     with open(str(log), "w") as out:
-        subprocess.run(command, cwd=str(cwd), stdout=out, stderr=subprocess.STDOUT)
-    return 0
+        try:
+            status = status_of(
+                subprocess.run(
+                    command, cwd=str(cwd), stdout=out, stderr=subprocess.STDOUT
+                ).returncode
+            )
+        except (FileNotFoundError, PermissionError) as e:
+            out.write("suite.py: cannot start %s: %s\n" % (command[0], e))
+            status = 127
+    verdict = "pass" if status == 0 else "fail"
+    with open(str(record), "a") as f:
+        write_lines(
+            f,
+            [
+                "ended: %s" % now(),
+                "exit.1: %d" % status,
+                "verdict: %s" % verdict,
+            ],
+        )
+    return 0 if verdict == "pass" else 1
 
 
 def parse_args(argv):
