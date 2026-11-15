@@ -565,6 +565,8 @@ def finish(l, is_closed_cmd=None, merge_commit=None, merge_style=None, env=None)
         "master",
         "--state-dir",
         str(l.state),
+        "--suite-record",
+        str(l.record),
         "--resolution",
         str(l.resolution),
         "--comment-cmd",
@@ -693,6 +695,28 @@ class FinishBeforeMergeTest(unittest.TestCase):
             self.assertFalse((l.state / "landing" / "7.finish.log").exists())
             self.assertTrue(l.wt.exists())
             self.assertFalse(l.calls.exists())
+
+
+class FinishWithoutRecordTest(unittest.TestCase):
+    def test_finish_without_its_suite_record_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            self.assertEqual(check(l, await_approval=True).returncode, 0)
+            merge_pr(l)
+            l.record.unlink()
+
+            r = finish(l)
+
+            self.assertEqual(r.returncode, 3, r.stderr)
+            self.assertIn("the suite record %s is missing" % l.record, r.stderr)
+            # Nothing changed: the ledger still waits, there is no journal, the
+            # ticket was not touched and the worktree is still there.
+            self.assertEqual(
+                ledger("get", "7", "state", state=l.state).stdout.strip(), "awaiting-approval"
+            )
+            self.assertFalse((l.state / "landing" / "7.finish.log").exists())
+            self.assertFalse(l.calls.exists())
+            self.assertTrue(l.wt.exists())
 
 
 class FinishAfterMergeTest(unittest.TestCase):

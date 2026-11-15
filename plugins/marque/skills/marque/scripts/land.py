@@ -450,6 +450,12 @@ def finish(a):
             file=sys.stderr,
         )
         return 3
+    if not a.suite_record.exists():
+        print(
+            "land.py: precondition failed: the suite record %s is missing" % a.suite_record,
+            file=sys.stderr,
+        )
+        return 3
     try:
         git(a.repo, "fetch", a.remote)
         hash_ = find_merge(a)
@@ -579,6 +585,12 @@ def parse_args(argv):
         epilog="exit codes: 0 landed, 3 a precondition failed, 1 a step failed mid-landing",
     )
     add_pr_common(p)
+    p.add_argument(
+        "--suite-record",
+        required=True,
+        metavar="FILE",
+        help="the integration run's suite record, to compare with the tree that landed",
+    )
     p.add_argument("--comment-cmd", required=True, metavar="CMD", help="posts the resolution comment")
     p.add_argument("--close-cmd", required=True, metavar="CMD", help="closes the ticket")
     p.add_argument(
