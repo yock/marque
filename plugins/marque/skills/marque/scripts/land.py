@@ -287,6 +287,24 @@ def already_merged(a):
     return is_ancestor(a.repo, a.branch, a.target)
 
 
+def verify_tree(a, journal):
+    """The merged target's tree must be the record's tree, before anything is pushed.
+
+    Runs on every pass until `pushed` is journaled, so a resume re-checks it even
+    when an earlier pass already journaled `verified`.
+    """
+    target_tree = git(a.repo, "rev-parse", "%s^{tree}" % a.target)
+    tested = read_record(a.suite_record).get("tree") if a.suite_record.exists() else None
+    if target_tree != tested:
+        raise StepError(
+            "the target's tree %s is not the tested tree %s (from %s)"
+            % (target_tree, tested, a.suite_record)
+        )
+    if not journal.has("verified"):
+        journal.record("verified")
+        crash("verified")
+
+
 def run_steps(a, journal):
     """Run every step not yet in the journal, in order; return the exit code."""
     issue = str(a.issue)
@@ -300,6 +318,9 @@ def run_steps(a, journal):
             crash("merged")
         hash_ = journal.get("merged")
         if not journal.has("pushed"):
+            # The tree the suite tested must be the tree that lands: check it
+            # again before every push, a resume's included.
+            verify_tree(a, journal)
             # A plain push: never --force, never a forced refspec. A rejected
             # push is a failed step, and the landing stops there.
             git(a.repo, "push", a.remote, a.target)

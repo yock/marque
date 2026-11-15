@@ -193,6 +193,8 @@ class HappyPathTest(unittest.TestCase):
             self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landed")
             self.assertEqual(ledger("get", "7", "landed", state=l.state).stdout.strip(), tip)
             self.assertFalse((l.state / "landing" / "7.log").exists())
+            # The merge put on the target exactly the tree the record tested.
+            self.assertEqual(sh("git", "rev-parse", "master^{tree}", cwd=l.origin), l.tree)
 
 
 def commit_elsewhere(l):
@@ -302,7 +304,7 @@ class PreconditionTest(unittest.TestCase):
                 self.assertEqual(sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo), BRANCH)
 
 
-STEPS = ["landing", "merged", "pushed", "confirmed", "commented", "closed", "cleaned"]
+STEPS = ["landing", "merged", "verified", "pushed", "confirmed", "commented", "closed", "cleaned"]
 
 
 class CrashAndResumeTest(unittest.TestCase):
@@ -411,6 +413,8 @@ class SquashTest(unittest.TestCase):
             # One parent: the branch's work landed as a single commit on master.
             self.assertEqual(len(sh("git", "log", "-1", "--format=%P", "master", cwd=l.origin).split()), 1)
             self.assertEqual(sh("git", "show", "master:numbers.txt", cwd=l.origin), "one\ntwo")
+            # The squash put on the target exactly the tree the record tested.
+            self.assertEqual(sh("git", "rev-parse", "master^{tree}", cwd=l.origin), l.tree)
             self.assertFalse(l.wt.exists())
             self.assertEqual(
                 sh("git", "branch", "--list", "--format=%(refname:short)", BRANCH, cwd=l.repo),
@@ -434,6 +438,55 @@ class NoForcePushTest(unittest.TestCase):
             # The push was rejected; origin still has the other clone's commit.
             self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), other_tip)
             self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            self.assertFalse(l.calls.exists())
+
+
+def commit_on_target(l):
+    """A commit on the repo's local target, on top of the merge the crash left."""
+    (l.repo / "numbers.txt").write_text("one\nseven\n")
+    sh("git", "commit", "--quiet", "-am", "After the merge", cwd=l.repo)
+
+
+class VerifiedTreeTest(unittest.TestCase):
+    def test_a_target_that_moved_after_the_merge_stops_before_the_push(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l, env={"MARQUE_LAND_CRASH_AFTER": "merged"})
+            self.assertEqual(r.returncode, 70, r.stderr)
+            commit_on_target(l)
+            target_tree = sh("git", "rev-parse", "master^{tree}", cwd=l.repo)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn(
+                "the target's tree %s is not the tested tree %s" % (target_tree, l.tree),
+                r.stderr,
+            )
+            # Nothing was pushed and the ticket was not touched.
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
+            self.assertFalse(l.calls.exists())
+            self.assertEqual(ledger("get", "7", "state", state=l.state).stdout.strip(), "landing")
+            self.assertNotIn("verified", (l.state / "landing" / "7.log").read_text())
+
+    def test_a_resume_after_the_tree_check_checks_the_tree_again(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            l = make_landing(tmp)
+            r = land(l, env={"MARQUE_LAND_CRASH_AFTER": "verified"})
+            self.assertEqual(r.returncode, 70, r.stderr)
+            origin_before = sh("git", "rev-parse", "master", cwd=l.origin)
+            commit_on_target(l)
+            target_tree = sh("git", "rev-parse", "master^{tree}", cwd=l.repo)
+
+            r = land(l)
+
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn(
+                "the target's tree %s is not the tested tree %s" % (target_tree, l.tree),
+                r.stderr,
+            )
+            self.assertEqual(sh("git", "rev-parse", "master", cwd=l.origin), origin_before)
             self.assertFalse(l.calls.exists())
 
 
