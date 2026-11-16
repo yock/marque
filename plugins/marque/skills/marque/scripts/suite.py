@@ -957,6 +957,7 @@ def sweep(a):
         if containers.is_dir()
         else []
     )
+    unconfirmed = False
     for name in recorded:
         fields = id_file_fields(containers / name)
         if run_is_live(fields):
@@ -968,10 +969,22 @@ def sweep(a):
                     fields.get("host") or socket.gethostname(),
                 )
             )
+            continue
+        if name in live:
+            confirmed, _ = stop_container(Discard(), name)
+            if confirmed:
+                (containers / name).unlink(missing_ok=True)
+                print("stopped %s: confirmed" % name)
+            else:
+                unconfirmed = True
+                print("stopped %s: unconfirmed" % name)
+        else:
+            (containers / name).unlink(missing_ok=True)
+            print("gone %s" % name)
     for container_id in live:
         if container_id not in recorded:
             print("unrecorded %s: left alone" % container_id)
-    return 0
+    return 1 if unconfirmed else 0
 
 
 def run(a):

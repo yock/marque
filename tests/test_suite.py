@@ -977,6 +977,78 @@ class SweepTest(unittest.TestCase):
         self.assertTrue(r.stdout.startswith("live box-6:"), r.stdout)
         self.assertEqual(live_ids(self.tmp), ["box-6"])
 
+    def test_a_dead_runs_box_is_stopped_and_its_id_file_removed(self):
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("container stop box-9", self.calls())
+        self.assertEqual(live_ids(self.tmp), [])
+        self.assertFalse((self.state / "beam" / "containers" / "box-9").exists())
+        self.assertIn("stopped box-9: confirmed\n", r.stdout)
+
+    def test_a_recorded_box_that_is_already_gone_loses_its_id_file(self):
+        # Nothing is live on the account, so there is nothing to stop; the ID
+        # file of a box that no longer exists is just stale.
+        write_id_file(
+            self.state,
+            "box-3",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertFalse((self.state / "beam" / "containers" / "box-3").exists())
+        self.assertEqual(r.stdout, "gone box-3\n")
+
+    def test_an_unconfirmed_stop_keeps_the_id_file_and_exits_1(self):
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STOP_IGNORED"] = "1"
+        r = self.sweep(env)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.stdout, "stopped box-9: unconfirmed\n")
+        self.assertTrue((self.state / "beam" / "containers" / "box-9").exists())
+        self.assertEqual(live_ids(self.tmp), ["box-9"])
+
+    def test_a_listing_that_fails_touches_nothing_and_exits_1(self):
+        # With no `beam` to ask, nothing is known about the account: the sweep
+        # touches no ID file, says it could not list, and exits 1.
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        (Path(self.tmp) / "empty").mkdir()
+        env = beam_env(self.tmp)
+        env["PATH"] = str(Path(self.tmp) / "empty")
+        r = self.sweep(env)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("sweep: cannot list containers", r.stderr)
+        self.assertTrue((self.state / "beam" / "containers" / "box-9").exists())
+
 
 class BeamTeardownSignalTest(unittest.TestCase):
     def test_a_signal_during_teardown_still_finishes_it_and_writes_the_record(self):
