@@ -856,6 +856,8 @@ def run_beam(
                     cost += rate * (stopped_at - started_at).total_seconds() / 60
                 else:
                     cost += rate * ttl / 60
+            # The run's settlement is the boxes' cost; the build settled its
+            # own row above, and the record's cost carries both.
             settle(state, run_id, cost, str(record))
             cost += build_cost
             lines = ["ended: %s" % now()]
