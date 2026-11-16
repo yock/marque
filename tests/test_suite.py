@@ -371,7 +371,7 @@ class BeamSandboxTest(BeamCase):
             calls,
         )
         self.assertEqual(live_containers(self.tmp), {})
-        self.assertIn("teardown: confirmed", record_lines(self.record))
+        self.assertIn("teardown.1: confirmed", record_lines(self.record))
         self.assert_no_violations()
 
     def test_the_beam_record_names_the_runner_the_container_the_cost_and_teardown(self):
@@ -381,15 +381,15 @@ class BeamSandboxTest(BeamCase):
         self.assertEqual(
             [line.split(": ", 1)[0] for line in lines],
             [
-                "tree", "commit", "runner", "started", "container",
-                "ended", "exit.1", "verdict", "cost", "teardown", "log",
+                "tree", "commit", "runner", "started", "container.1",
+                "ended", "exit.1", "verdict", "cost", "teardown.1", "log",
             ],
         )
         values = record_values(self.record)
         self.assertEqual(values["runner"], "beam")
-        self.assertEqual(values["container"], "box-1")
+        self.assertEqual(values["container.1"], "box-1")
         self.assertRegex(values["cost"], r"^\d+\.\d{4}$")
-        self.assertEqual(values["teardown"], "confirmed")
+        self.assertEqual(values["teardown.1"], "confirmed")
         self.assert_no_violations()
 
 
@@ -434,7 +434,7 @@ class BeamFailureTest(BeamCase):
         values = record_values(self.record)
         self.assertEqual(values["exit.1"], "7")
         self.assertEqual(values["verdict"], "fail")
-        self.assertEqual(values["teardown"], "confirmed")
+        self.assertEqual(values["teardown.1"], "confirmed")
         self.assertIn("container stop box-1", self.calls())
         self.assertEqual(live_containers(self.tmp), {})
         self.assert_no_violations()
@@ -487,7 +487,7 @@ class BeamSignalTest(unittest.TestCase):
                     values = record_values(record)
                     self.assertEqual(values["exit.1"], str(code))
                     self.assertEqual(values["verdict"], "fail")
-                    self.assertEqual(values["teardown"], "confirmed")
+                    self.assertEqual(values["teardown.1"], "confirmed")
 
 
 class BeamCostTest(BeamCase):
@@ -512,7 +512,7 @@ class BeamCostTest(BeamCase):
         r = self.run_it(env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         values = record_values(self.record)
-        self.assertEqual(values["teardown"], "unconfirmed")
+        self.assertEqual(values["teardown.1"], "unconfirmed")
         self.assertEqual(values["cost"], "70.0000")
         self.assertEqual(
             [p.name for p in (self.state / "beam" / "containers").iterdir()],
@@ -585,7 +585,7 @@ class BeamTeardownSignalTest(unittest.TestCase):
             values = record_values(record)
             self.assertEqual(values["exit.1"], "143")
             self.assertEqual(values["verdict"], "fail")
-            self.assertEqual(values["teardown"], "confirmed")
+            self.assertEqual(values["teardown.1"], "confirmed")
             self.assertIn("log", values)
 
     @staticmethod
