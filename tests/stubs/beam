@@ -2,8 +2,9 @@
 """A stub `beam` for suite.py's Beam runner tests, with the CLI's allowlist.
 
 STUB_BEAM_STATE         required: the state dir. Holds images.json,
-                        containers.json (live containers: id -> started_at) and
-                        calls.log (one line per call: the argv joined by spaces).
+                        containers.json (live containers: id -> started_at),
+                        calls.log (one line per call: the argv joined by spaces)
+                        and .lock (the lock around every change of the JSON).
 STUB_BEAM_STARTED_AGO   seconds to subtract from a new box's `started_at`
                         (default 0), so a test can age a container.
 STUB_BEAM_ID_DIR        suite.py's container-state dir. `container cp` checks
@@ -14,6 +15,10 @@ STUB_BEAM_EXEC_SLEEP    seconds a non-extraction `container exec` sleeps
                         (default 0), so a test can signal while it runs.
 STUB_BEAM_EXEC_STATUS   the status a non-extraction `container exec` exits
                         with (default 0).
+STUB_BEAM_FAIL_MATCH    when set, only an exec whose command text contains it
+                        fails, with STUB_BEAM_EXEC_STATUS (default 1); the
+                        others exit 0. When unset, every exec uses
+                        STUB_BEAM_EXEC_STATUS.
 STUB_BEAM_STOP_IGNORED  when 1, `container stop` leaves the box live, so
                         teardown cannot be confirmed.
 STUB_BEAM_STOP_SLEEP    seconds `container stop` sleeps before it removes the
@@ -24,9 +29,12 @@ Only `image build`, `image get`, `container create`, `container cp`,
 else is logged as `VIOLATION <argv>` and exits 99: a test that sees a
 violation fails.
 """
+import contextlib
+import fcntl
 import json
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -52,6 +60,22 @@ def log(argv):
         f.write(" ".join(argv) + "\n")
 
 
+@contextlib.contextmanager
+def locked():
+    """The state dir's exclusive lock: one read-modify-write at a time.
+
+    Concurrent `create`s would otherwise all read the same `containers.json`
+    and mint the same ID.
+    """
+    handle = open(os.path.join(state_dir(), ".lock"), "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def load(name, default):
     path = os.path.join(state_dir(), name)
     try:
@@ -62,9 +86,17 @@ def load(name, default):
 
 
 def save(name, data):
+    """Replace the file in one step, so a reader never sees half of it."""
     path = os.path.join(state_dir(), name)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f)
+    fd, scratch = tempfile.mkstemp(dir=state_dir(), prefix=name + ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(scratch, path)
+    except BaseException:
+        if os.path.exists(scratch):
+            os.unlink(scratch)
+        raise
 
 
 def next_id(known, prefix):
@@ -85,6 +117,16 @@ def container_id_from(arg):
     return host if sep else None
 
 
+def exec_status(text):
+    """One part can fail while the others pass: STUB_BEAM_FAIL_MATCH."""
+    match = os.environ.get("STUB_BEAM_FAIL_MATCH")
+    if match is None:
+        return int(os.environ.get("STUB_BEAM_EXEC_STATUS", "0"))
+    if match in text:
+        return int(os.environ.get("STUB_BEAM_EXEC_STATUS", "1"))
+    return 0
+
+
 def main(argv):
     if tuple(argv[:2]) not in ALLOWED:
         log(["VIOLATION"] + argv)
@@ -98,10 +140,11 @@ def main(argv):
         if not option(argv, "--dockerfile") or option(argv, "--format") != "json":
             print("stub beam: image build needs --dockerfile and --format json", file=sys.stderr)
             return 1
-        images = load("images.json", {})
-        image_id = next_id(images, "img")
-        images[image_id] = {"dockerfile": option(argv, "--dockerfile")}
-        save("images.json", images)
+        with locked():
+            images = load("images.json", {})
+            image_id = next_id(images, "img")
+            images[image_id] = {"dockerfile": option(argv, "--dockerfile")}
+            save("images.json", images)
         print("building...", file=sys.stderr)
         print(json.dumps({"success": True, "image_id": image_id}))
         return 0
@@ -123,10 +166,11 @@ def main(argv):
             return 1
         ago = int(os.environ.get("STUB_BEAM_STARTED_AGO", "0"))
         started = datetime.now(timezone.utc) - timedelta(seconds=ago)
-        live = load("containers.json", {})
-        container_id = next_id(live, "box")
-        live[container_id] = stamp(started)
-        save("containers.json", live)
+        with locked():
+            live = load("containers.json", {})
+            container_id = next_id(live, "box")
+            live[container_id] = stamp(started)
+            save("containers.json", live)
         print(json.dumps({"container_id": container_id, "status": "submitted"}))
         return 0
 
@@ -153,15 +197,16 @@ def main(argv):
             return 0
         time.sleep(float(os.environ.get("STUB_BEAM_EXEC_SLEEP", "0")))
         print("stub ran: %s" % text)
-        return int(os.environ.get("STUB_BEAM_EXEC_STATUS", "0"))
+        return exec_status(text)
 
     if verb == ("container", "stop"):
         container_id = argv[2] if len(argv) > 2 else ""
         time.sleep(float(os.environ.get("STUB_BEAM_STOP_SLEEP", "0")))
         if os.environ.get("STUB_BEAM_STOP_IGNORED") != "1":
-            live = load("containers.json", {})
-            live.pop(container_id, None)
-            save("containers.json", live)
+            with locked():
+                live = load("containers.json", {})
+                live.pop(container_id, None)
+                save("containers.json", live)
         print("Stopped container: %s" % container_id)
         return 0
 
