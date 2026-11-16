@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -404,6 +405,49 @@ class BeamCase(unittest.TestCase):
 def live_containers(tmp):
     path = Path(tmp) / "stub" / "containers.json"
     return json.loads(path.read_text()) if path.exists() else {}
+
+
+def seed_live(tmp, *ids):
+    """Make the stub report these container IDs live, all started just now."""
+    stub = Path(tmp) / "stub"
+    stub.mkdir(parents=True, exist_ok=True)
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    (stub / "containers.json").write_text(
+        json.dumps({container_id: started for container_id in sorted(ids)})
+    )
+
+
+def write_id_file(state, box, **fields):
+    """One recorded container's ID file, in the documented `key: value` form."""
+    directory = Path(state) / "beam" / "containers"
+    directory.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "%s: %s" % (key, fields[key])
+        for key in ("pid", "host", "run", "record", "created", "worst")
+        if key in fields
+    ]
+    (directory / box).write_text("".join(line + "\n" for line in lines))
+
+
+def dead_pid():
+    """A pid that has already finished: os.kill(pid, 0) says it is gone."""
+    process = subprocess.Popen(["true"])
+    process.wait()
+    return process.pid
+
+
+def run_sweep(tmp, state, env=None):
+    return subprocess.run(
+        [sys.executable, str(SUITE), "sweep", "--state-dir", str(state)],
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        env=beam_env(tmp) if env is None else env,
+    )
+
+
+def live_ids(tmp):
+    return sorted(live_containers(tmp))
 
 
 class BeamSandboxTest(BeamCase):
@@ -858,6 +902,43 @@ class BeamMaxWallTest(BeamCase):
                 with self.subTest(call=call):
                     self.assertIn("--timeout 60", call)
         self.assert_no_violations()
+
+
+class SweepTest(unittest.TestCase):
+    """`suite.py sweep`: only the sandboxes Marque recorded, and only dead runs'."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = self._tmp.name
+        self.state = Path(self.tmp) / "state"
+
+    def sweep(self, env=None):
+        return run_sweep(self.tmp, self.state, env)
+
+    def calls(self):
+        return beam_calls(self.tmp)
+
+    def stops(self):
+        return [call for call in self.calls() if call.startswith("container stop")]
+
+    def test_a_state_dir_that_never_used_beam_is_swept_without_a_beam_call(self):
+        # No `<state>/beam/` at all: a local-only project, so no `beam` call,
+        # no output and a clean exit.
+        self.state.mkdir()
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_live_sandbox_marque_did_not_record_is_reported_and_left_alone(self):
+        seed_live(self.tmp, "box-7")
+        (self.state / "beam" / "containers").mkdir(parents=True)
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "unrecorded box-7: left alone\n")
+        self.assertEqual(self.stops(), [])
+        self.assertEqual(live_ids(self.tmp), ["box-7"])
 
 
 class BeamTeardownSignalTest(unittest.TestCase):

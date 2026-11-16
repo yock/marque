@@ -899,6 +899,30 @@ def refuse(message):
     return 2
 
 
+def sweep(a):
+    """Tear down recorded boxes whose run is no longer live, then settle them."""
+    state = Path(a.state_dir)
+    if not (state / "beam").is_dir():
+        return 0
+    r = beam(Discard(), "container", "list", "--format", "json")
+    data = json_of(r)
+    if r.returncode != 0 or not isinstance(data, list):
+        print("sweep: cannot list containers", file=sys.stderr)
+        return 1
+    live = [
+        entry.get("container_id")
+        for entry in data
+        if isinstance(entry, dict) and entry.get("container_id")
+    ]
+    recorded = sorted(
+        path.name for path in (state / "beam" / "containers").iterdir()
+    ) if (state / "beam" / "containers").is_dir() else []
+    for container_id in live:
+        if container_id not in recorded:
+            print("unrecorded %s: left alone" % container_id)
+    return 0
+
+
 def run(a):
     """Run the suite and write the record; return the process exit code."""
     command = a.command[1:] if a.command[:1] == ["--"] else a.command
@@ -1086,6 +1110,17 @@ def parse_args(argv):
         help="override the `## Runner` block's max wall time",
     )
     p.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD", help="the command after --")
+
+    p = sub.add_parser(
+        "sweep",
+        help="tear down recorded Beam sandboxes whose run is no longer live",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit codes: 0 swept, 1 a teardown could not be confirmed or the "
+            "containers could not be listed"
+        ),
+    )
+    p.add_argument("--state-dir", required=True, metavar="DIR")
     return ap.parse_args(argv)
 
 
@@ -1093,6 +1128,8 @@ def main(argv=None):
     a = parse_args(argv)
     if a.cmd == "run":
         return run(a)
+    if a.cmd == "sweep":
+        return sweep(a)
     return 2
 
 
