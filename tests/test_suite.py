@@ -1078,6 +1078,70 @@ class BeamParallelSignalTest(unittest.TestCase):
             self.assertIn("log", values)
 
 
+class BeamLedgerLockTest(unittest.TestCase):
+    def test_concurrent_writers_to_the_ledger_do_not_corrupt_it(self):
+        # Six runs share one state dir and append at once. The lock makes each
+        # read-and-append atomic: every row keeps all five fields, and every
+        # run has exactly one reserve and one settle.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _ = make_beam_repo(tmp)
+            state = Path(tmp) / "state"
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "1"
+            procs = []
+            for index in range(6):
+                procs.append(
+                    subprocess.Popen(
+                        [
+                            sys.executable, str(SUITE), "run",
+                            "--record", str(Path(tmp) / "logs" / ("run-%d.record" % index)),
+                            "--runner", "beam",
+                            "--state-dir", str(state),
+                            "--rate", "1.0",
+                            "--cap", "1000000",
+                            "--concurrency", "6",
+                        ],
+                        cwd=str(repo),
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                )
+            try:
+                for p in procs:
+                    p.communicate(timeout=120)
+            finally:
+                for p in procs:
+                    if p.poll() is None:
+                        p.kill()
+                        p.communicate()
+            self.assertEqual([p.returncode for p in procs], [0] * 6)
+            lines = (state / "spend.tsv").read_text().splitlines()
+            self.assertEqual(lines[0], "time\tkind\trun\tamount\tnote")
+            for line in lines[1:]:
+                fields = line.split("\t")
+                self.assertEqual(len(fields), 5, line)
+                float(fields[3])
+            rows = spend_rows(state)
+            run_ids = [
+                run
+                for kind, run, _ in rows
+                if kind == "reserve" and not run.endswith(".build")
+            ]
+            self.assertEqual(len(run_ids), 6, run_ids)
+            for run_id in run_ids:
+                with self.subTest(run=run_id):
+                    self.assertEqual(
+                        len([1 for k, r, _ in rows if r == run_id and k == "reserve"]),
+                        1,
+                    )
+                    self.assertEqual(
+                        len([1 for k, r, _ in rows if r == run_id and k == "settle"]),
+                        1,
+                    )
+
+
 class LocalSpendTest(unittest.TestCase):
     def test_a_local_run_writes_no_ledger_rows(self):
         # The ledger is the paid-compute account; a local run spends nothing.
