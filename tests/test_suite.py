@@ -322,7 +322,11 @@ class BeamRefusalTest(unittest.TestCase):
                 ["--state-dir", "{state}", "--cap", "1000000"],
                 "--rate",
             ),
-            "no state dir": (BEAM_BLOCK, ["--rate", "1.0", "--cap", "1000000"], "--state-dir"),
+            "no state dir": (
+                BEAM_BLOCK,
+                ["--rate", "1.0", "--cap", "1000000"],
+                "--state-dir",
+            ),
             "no cap": (
                 BEAM_BLOCK,
                 ["--state-dir", "{state}", "--rate", "1.0"],
@@ -598,7 +602,6 @@ class BeamCapTest(BeamCase):
         self.assertEqual(record_values(self.record)["runner"], "beam")
         self.assert_no_violations()
 
-
     def test_a_settled_run_is_charged_from_started_at_and_the_confirmed_stop(self):
         # The stub ages the box 600 s = 10 wall-minutes at 1.0; the reservation
         # was the 4200 s worst case, 70.0000. Settlement replaces the
@@ -620,7 +623,6 @@ class BeamCapTest(BeamCase):
         self.assertLessEqual(settled[0], 11.0)
         self.assert_no_violations()
 
-
     def test_a_build_is_reserved_and_settled_and_a_reused_image_adds_no_rows(self):
         # The build reserves the 600 s margin at 1.0 per minute: 10.0000. Its
         # settle comes from the wall time `image build` took, so 0 or more.
@@ -638,9 +640,7 @@ class BeamCapTest(BeamCase):
         self.assertGreaterEqual(settled[0], 0.0)
         # The record's cost is the boxes' cost plus the build's: settling the
         # build is part of the run's figure, not a separate line.
-        run_id = next(
-            run for _, run, _ in rows if not run.endswith(".build")
-        )
+        run_id = next(run for _, run, _ in rows if not run.endswith(".build"))
         run_settle = [
             amount for kind, run, amount in rows if kind == "settle" and run == run_id
         ][0]
