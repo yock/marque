@@ -12,9 +12,12 @@ to a log beside the record.
 The record is one `key: value` per line: a small file beside its log, not the
 log itself.
 
-`--runner beam` runs the command on a Beam sandbox instead, with Marque owning
-the whole lifecycle: build the image, create the container, upload the exact
-tree, run, tear down, account. It needs `--state-dir` and `--rate`.
+`--runner beam` runs the command — or each of the block's commands, one
+sandbox each — on Beam instead, with Marque owning the whole lifecycle:
+build the image, create the containers, upload the exact tree, run, tear
+down, account. It needs `--state-dir` and `--rate`, and takes
+`--concurrency`, the account's limit on live sandboxes: a run without a free
+slot waits.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
 git worktree, no command, a missing Beam term), nothing written; 3 reserved for
@@ -484,7 +487,17 @@ def run_local_commands(record, cwd, tree, commit, commands):
 
 
 def run_beam(
-    record, worktree, tree, commit, block, max_wall, rate, state, commands, boxes, concurrency
+    record,
+    worktree,
+    tree,
+    commit,
+    block,
+    max_wall,
+    rate,
+    state,
+    commands,
+    boxes,
+    concurrency,
 ):
     """The run's commands, each on its own sandbox, torn down on every exit path.
 
@@ -707,8 +720,14 @@ def run_beam(
             ]
             lines += ["verdict: %s" % verdict, "cost: %.4f" % cost]
             lines += [
-                "teardown.%d: %s" % (part, "confirmed" if torn_down[part][0] else "unconfirmed")
-                for part in sorted(torn_down)
+                "teardown.%d: %s"
+                % (
+                    part,
+                    "confirmed"
+                    if torn_down.get(part, (False, None))[0]
+                    else "unconfirmed",
+                )
+                for part in sorted(boxes_by_part)
             ]
             lines.append("log: %s" % log_path.resolve())
             with open(str(record), "a") as f:

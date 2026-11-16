@@ -28,6 +28,11 @@ def beam_calls(tmp):
     return path.read_text().splitlines() if path.exists() else []
 
 
+def call_indexes(calls, prefix):
+    """Where in calls.log the calls that start with prefix are."""
+    return [i for i, call in enumerate(calls) if call.startswith(prefix)]
+
+
 def sh(*args, cwd):
     r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)
     if r.returncode != 0:
@@ -430,8 +435,8 @@ class BeamParallelPartsTest(BeamCase):
         r = self.run_it("--concurrency", "2", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         calls = self.calls()
-        creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
-        stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+        creates = call_indexes(calls, "container create")
+        stops = call_indexes(calls, "container stop")
         self.assertEqual(len(creates), 2, calls)
         self.assertEqual(len(stops), 2, calls)
         for create in creates:
@@ -497,8 +502,8 @@ class BeamSerialPartsTest(BeamCase):
         r = self.run_it()
         self.assertEqual(r.returncode, 0, r.stderr)
         calls = self.calls()
-        creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
-        stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+        creates = call_indexes(calls, "container create")
+        stops = call_indexes(calls, "container stop")
         self.assertEqual(len(creates), 2, calls)
         self.assertEqual(len(stops), 2, calls)
         self.assertLess(stops[0], creates[1], calls)
@@ -756,8 +761,8 @@ class BeamSlotTest(unittest.TestCase):
                         p.communicate()
             self.assertEqual([p.returncode for p in procs], [0, 0])
             calls = beam_calls(tmp)
-            creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
-            stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+            creates = call_indexes(calls, "container create")
+            stops = call_indexes(calls, "container stop")
             self.assertEqual(len(creates), 2, calls)
             self.assertEqual(len(stops), 2, calls)
             self.assertLess(creates[0], stops[0], calls)
@@ -858,7 +863,8 @@ class BeamParallelSignalTest(unittest.TestCase):
                     run_lines = [
                         call
                         for call in beam_calls(tmp)
-                        if call.startswith("container exec") and "make part" in call
+                        if call.startswith("container exec")
+                        and "make part" in call
                     ]
                     if len(run_lines) == 2:
                         break
@@ -878,7 +884,8 @@ class BeamParallelSignalTest(unittest.TestCase):
             self.assertEqual(len(set(stops)), 2, calls)
             self.assertEqual(live_containers(tmp), {})
             lines = record_lines(record)
-            self.assertTrue([line for line in lines if line.startswith("ended:")], lines)
+            closing = [line for line in lines if line.startswith("ended:")]
+            self.assertTrue(closing, lines)
             values = record_values(record)
             self.assertEqual(values["exit.1"], "143")
             self.assertEqual(values["exit.2"], "143")
