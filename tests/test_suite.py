@@ -284,6 +284,11 @@ class BeamRefusalTest(unittest.TestCase):
                 ["--state-dir", "{state}", "--rate", "1.0"],
                 "parallel parts",
             ),
+            "missing dockerfile": (
+                BEAM_BLOCK.replace("Dockerfile", "tools/missing.Dockerfile"),
+                ["--state-dir", "{state}", "--rate", "1.0"],
+                "does not exist",
+            ),
         }
         for name, (block, flags, marker) in cases.items():
             with self.subTest(name=name):
