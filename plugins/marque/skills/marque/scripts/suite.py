@@ -448,12 +448,15 @@ def run_local_commands(record, cwd, tree, commit, commands):
     return 0 if verdict == "pass" else 1
 
 
-def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, commands):
+def run_beam(
+    record, worktree, tree, commit, block, max_wall, rate, state, commands, boxes
+):
     """The run's commands, each on its own sandbox, torn down on every exit path.
 
     One part per command, numbered in command order. A pool of workers pulls
     parts, and each worker owns its box from `container create` to the
-    teardown: the main thread only steps in on a signal.
+    teardown: the main thread only steps in on a signal. `boxes` caps how many
+    parts are live at once; the rest start as earlier ones finish.
     """
     record = Path(record)
     log_path = log_of(record)
@@ -605,7 +608,10 @@ def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, comma
                         return
                     run_part(part)
 
-            workers = [threading.Thread(target=work, daemon=True)]
+            workers = [
+                threading.Thread(target=work, daemon=True)
+                for _ in range(max(1, min(parts, boxes)))
+            ]
             for worker in workers:
                 worker.start()
             while True:
@@ -725,6 +731,14 @@ def run(a):
     dockerfile = Path(worktree) / block["dockerfile"]
     if not dockerfile.exists():
         return refuse("the Dockerfile %s does not exist" % dockerfile)
+    boxes = 1
+    if block.get("boxes") is not None:
+        try:
+            boxes = int(block["boxes"])
+        except ValueError:
+            boxes = 0
+        if boxes < 1:
+            return refuse("`boxes` in the `## Runner` block is not a positive integer")
     max_wall = a.max_wall
     if max_wall is None:
         try:
@@ -734,11 +748,18 @@ def run(a):
                 "a beam run needs a max wall time: `max wall time` in the "
                 "`## Runner` block, or --max-wall"
             )
-    if from_block and len(commands) > 1:
-        return refuse("several commands run in parallel parts, not yet supported")
     commands = commands if from_block else [shlex.join(command)]
     return run_beam(
-        record, worktree, tree, commit, block, max_wall, a.rate, a.state_dir, commands
+        record,
+        worktree,
+        tree,
+        commit,
+        block,
+        max_wall,
+        a.rate,
+        a.state_dir,
+        commands,
+        boxes,
     )
 
 

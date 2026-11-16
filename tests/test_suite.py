@@ -72,6 +72,25 @@ def make_beam_repo(tmp, block=BEAM_BLOCK):
     return repo, record
 
 
+TWO_PART_BLOCK = """## Runner
+
+runner: beam
+dockerfile: Dockerfile
+cpu: 2
+memory: 4096
+boxes: %d
+max wall time: 3600
+commands:
+- make part-one
+- make part-two
+"""
+
+
+def two_part_block(boxes):
+    """ping's model case: two halves of one suite, each with its own box."""
+    return TWO_PART_BLOCK % boxes
+
+
 def run_suite(repo, record, command):
     return subprocess.run(
         [sys.executable, str(SUITE), "run", "--record", str(record), "--", *command],
@@ -279,10 +298,12 @@ class BeamRefusalTest(unittest.TestCase):
                 ["--state-dir", "{state}", "--rate", "1.0"],
                 "max wall time",
             ),
-            "two commands": (
-                BEAM_BLOCK + "- ctest\n",
+            "boxes not a positive integer": (
+                BEAM_BLOCK.replace(
+                    "max wall time: 3600\n", "boxes: none\nmax wall time: 3600\n"
+                ),
                 ["--state-dir", "{state}", "--rate", "1.0"],
-                "parallel parts",
+                "positive integer",
             ),
             "missing dockerfile": (
                 BEAM_BLOCK.replace("Dockerfile", "tools/missing.Dockerfile"),
@@ -305,11 +326,13 @@ class BeamRefusalTest(unittest.TestCase):
 class BeamCase(unittest.TestCase):
     """A Beam repo, its state dir and the stub's call log."""
 
+    BLOCK = BEAM_BLOCK
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = self._tmp.name
-        self.repo, self.record = make_beam_repo(self.tmp)
+        self.repo, self.record = make_beam_repo(self.tmp, self.BLOCK)
         self.state = Path(self.tmp) / "state"
 
     def run_it(self, *args, **kwargs):
@@ -390,6 +413,95 @@ class BeamSandboxTest(BeamCase):
         self.assertEqual(values["container.1"], "box-1")
         self.assertRegex(values["cost"], r"^\d+\.\d{4}$")
         self.assertEqual(values["teardown.1"], "confirmed")
+        self.assert_no_violations()
+
+
+class BeamParallelPartsTest(BeamCase):
+    """A block's commands are parts, each on its own sandbox."""
+
+    BLOCK = two_part_block(2)
+
+    def test_two_commands_run_on_two_sandboxes_at_once_and_both_pass(self):
+        # The stub sleeps 2 s in every command exec, so the run can only end
+        # in that time if both boxes are live together (boxes: 2).
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_EXEC_SLEEP"] = "2"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
+        stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+        self.assertEqual(len(creates), 2, calls)
+        self.assertEqual(len(stops), 2, calls)
+        for create in creates:
+            self.assertLess(create, stops[0], calls)
+        values = record_values(self.record)
+        self.assertEqual(
+            sorted([values["container.1"], values["container.2"]]), ["box-1", "box-2"]
+        )
+        self.assertEqual(values["exit.1"], "0")
+        self.assertEqual(values["exit.2"], "0")
+        self.assertEqual(values["verdict"], "pass")
+        self.assertEqual(values["teardown.1"], "confirmed")
+        self.assertEqual(values["teardown.2"], "confirmed")
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assertEqual(list((self.state / "beam" / "containers").iterdir()), [])
+        keys = [line.split(": ", 1)[0] for line in record_lines(self.record)]
+        self.assertEqual(keys[:4], ["tree", "commit", "runner", "started"])
+        self.assertEqual(sorted(keys[4:6]), ["container.1", "container.2"])
+        self.assertEqual(
+            keys[6:],
+            ["ended", "exit.1", "exit.2", "verdict", "cost", "teardown.1",
+             "teardown.2", "log"],
+        )
+        self.assert_no_violations()
+
+    def test_a_failing_part_fails_the_verdict_and_the_others_still_pass(self):
+        # The stub fails only execs whose text contains the match, with the
+        # STUB_BEAM_EXEC_STATUS it was given; 5 is that part's exit status.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_FAIL_MATCH"] = "part-two"
+        env["STUB_BEAM_EXEC_STATUS"] = "5"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        values = record_values(self.record)
+        self.assertEqual(values["exit.1"], "0")
+        self.assertEqual(values["exit.2"], "5")
+        self.assertEqual(values["verdict"], "fail")
+        self.assertEqual(values["teardown.1"], "confirmed")
+        self.assertEqual(values["teardown.2"], "confirmed")
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assert_no_violations()
+
+    def test_cost_is_summed_over_the_boxes(self):
+        # The stub ages every box 600 s = 10 wall-minutes; at 1.0 per minute
+        # two boxes cost 20.0000 plus the couple of seconds the run takes. A
+        # worst-case charge per box would be 2 x 4200/60 = 140.0000.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cost = float(record_values(self.record)["cost"])
+        self.assertGreaterEqual(cost, 20.0000)
+        self.assertLessEqual(cost, 22.0000)
+        self.assert_no_violations()
+
+
+class BeamSerialPartsTest(BeamCase):
+    """`boxes: 1` runs the parts one after the other."""
+
+    BLOCK = two_part_block(1)
+
+    def test_boxes_one_runs_the_parts_one_after_the_other(self):
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
+        stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+        self.assertEqual(len(creates), 2, calls)
+        self.assertEqual(len(stops), 2, calls)
+        self.assertLess(stops[0], creates[1], calls)
+        self.assertEqual(record_values(self.record)["verdict"], "pass")
         self.assert_no_violations()
 
 
