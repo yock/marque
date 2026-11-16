@@ -15,13 +15,14 @@ log itself.
 `--runner beam` runs the command — or each of the block's commands, one
 sandbox each — on Beam instead, with Marque owning the whole lifecycle:
 build the image, create the containers, upload the exact tree, run, tear
-down, account. It needs `--state-dir` and `--rate`, and takes
+down, account. It needs `--state-dir`, `--rate` and `--cap`, and takes
 `--concurrency`, the account's limit on live sandboxes: a run without a free
-slot waits.
+slot waits. Every paid run reserves its worst case against `--cap` first and
+settles it at teardown.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
-git worktree, no command, a missing Beam term), nothing written; 3 reserved for
-paid compute, refused with no fallback possible.
+git worktree, no command, a missing Beam term), nothing written; 3 paid
+compute refused when the block says `local fallback: no`.
 """
 import argparse
 import fcntl
@@ -783,11 +784,16 @@ def run(a):
         return refuse("a beam run needs --state-dir")
     if a.rate is None:
         return refuse("a beam run needs --rate")
+    if a.cap is None:
+        return refuse("a beam run needs --cap")
     if not block:
         return refuse("a beam run needs the `## Runner` block in docs/agents/marque.md")
     for field in ("dockerfile", "cpu", "memory"):
         if not block.get(field):
             return refuse("the `## Runner` block has no %s" % field)
+    fallback = block.get("local fallback", "yes")
+    if fallback not in ("yes", "no"):
+        return refuse("`local fallback` in the `## Runner` block must be yes or no")
     dockerfile = Path(worktree) / block["dockerfile"]
     if not dockerfile.exists():
         return refuse("the Dockerfile %s does not exist" % dockerfile)
@@ -835,6 +841,17 @@ def positive_int(text):
     return value
 
 
+def non_negative_float(text):
+    """An argparse type for an amount that must not be negative."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1.0
+    if value < 0:
+        raise argparse.ArgumentTypeError("expected a non-negative amount, got %r" % text)
+    return value
+
+
 def parse_args(argv):
     ap = argparse.ArgumentParser(
         description=__doc__.split("\n")[0],
@@ -848,8 +865,8 @@ def parse_args(argv):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "exit codes: 0 pass, 1 fail, 2 refused before starting (dirty worktree, "
-            "not a git worktree, no command, a missing Beam term), 3 reserved for "
-            "paid compute"
+            "not a git worktree, no command, a missing Beam term), 3 paid compute "
+            "refused when the block says `local fallback: no`"
         ),
     )
     p.add_argument("--record", required=True, metavar="FILE", help="the suite record to write")
@@ -867,6 +884,15 @@ def parse_args(argv):
         type=float,
         metavar="PER_MINUTE",
         help="currency per wall-minute; required for beam",
+    )
+    p.add_argument(
+        "--cap",
+        type=non_negative_float,
+        metavar="AMOUNT",
+        help=(
+            "the commission's paid-compute cap, in the same currency as "
+            "--rate; required for beam"
+        ),
     )
     p.add_argument(
         "--concurrency",

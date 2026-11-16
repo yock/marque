@@ -288,6 +288,7 @@ def beam_ok(repo, record, tmp, *args, env=None):
         "--runner", "beam",
         "--state-dir", state,
         "--rate", "1.0",
+        "--cap", "1000000",
         *args,
         env=env,
     )
@@ -296,24 +297,41 @@ def beam_ok(repo, record, tmp, *args, env=None):
 class BeamRefusalTest(unittest.TestCase):
     def test_a_beam_run_missing_a_required_term_is_refused_before_anything(self):
         cases = {
-            "no rate": (BEAM_BLOCK, ["--state-dir", "{state}"], "--rate"),
-            "no state dir": (BEAM_BLOCK, ["--rate", "1.0"], "--state-dir"),
+            "no rate": (
+                BEAM_BLOCK,
+                ["--state-dir", "{state}", "--cap", "1000000"],
+                "--rate",
+            ),
+            "no state dir": (BEAM_BLOCK, ["--rate", "1.0", "--cap", "1000000"], "--state-dir"),
+            "no cap": (
+                BEAM_BLOCK,
+                ["--state-dir", "{state}", "--rate", "1.0"],
+                "--cap",
+            ),
             "no max wall time": (
                 BEAM_BLOCK.replace("max wall time: 3600\n", ""),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "max wall time",
             ),
             "boxes not a positive integer": (
                 BEAM_BLOCK.replace(
                     "max wall time: 3600\n", "boxes: none\nmax wall time: 3600\n"
                 ),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "positive integer",
             ),
             "missing dockerfile": (
                 BEAM_BLOCK.replace("Dockerfile", "tools/missing.Dockerfile"),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "does not exist",
+            ),
+            "local fallback neither yes nor no": (
+                BEAM_BLOCK.replace(
+                    "max wall time: 3600\n",
+                    "max wall time: 3600\nlocal fallback: maybe\n",
+                ),
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
+                "local fallback",
             ),
         }
         for name, (block, flags, marker) in cases.items():
@@ -575,6 +593,7 @@ class BeamSignalTest(unittest.TestCase):
                             "--runner", "beam",
                             "--state-dir", str(Path(tmp) / "state"),
                             "--rate", "1.0",
+                            "--cap", "1000000",
                         ],
                         cwd=str(repo),
                         env=env,
@@ -672,6 +691,7 @@ class BeamTeardownSignalTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(Path(tmp) / "state"),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                 ],
                 cwd=str(repo),
                 env=env,
@@ -727,6 +747,7 @@ class BeamSlotTest(unittest.TestCase):
                 "--runner", "beam",
                 "--state-dir", str(state),
                 "--rate", "1.0",
+                "--cap", "1000000",
                 "--concurrency", "1",
             ],
             cwd=str(repo),
@@ -787,6 +808,7 @@ class BeamSlotTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(state),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "1",
                 ],
                 cwd=str(repos[0][0]),
@@ -821,6 +843,7 @@ class BeamSlotTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(state),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "1",
                 ],
                 cwd=str(repos[1][0]),
@@ -849,6 +872,7 @@ class BeamParallelSignalTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(Path(tmp) / "state"),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "2",
                 ],
                 cwd=str(repo),
