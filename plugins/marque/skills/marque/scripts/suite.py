@@ -12,24 +12,30 @@ to a log beside the record.
 The record is one `key: value` per line: a small file beside its log, not the
 log itself.
 
-`--runner beam` runs the command on a Beam sandbox instead, with Marque owning
-the whole lifecycle: build the image, create the container, upload the exact
-tree, run, tear down, account. It needs `--state-dir` and `--rate`.
+`--runner beam` runs the command — or each of the block's commands, one
+sandbox each — on Beam instead, with Marque owning the whole lifecycle:
+build the image, create the containers, upload the exact tree, run, tear
+down, account. It needs `--state-dir` and `--rate`, and takes
+`--concurrency`, the account's limit on live sandboxes: a run without a free
+slot waits.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
 git worktree, no command, a missing Beam term), nothing written; 3 reserved for
 paid compute, refused with no fallback possible.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import os
+import queue
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -147,6 +153,38 @@ def read_runner_block(worktree):
     return block
 
 
+class RunLog:
+    """The run's one log, shared by every part without their output interleaving.
+
+    A worker tags itself with the part it is running; each chunk beam() prints
+    is written under the log's lock with that part's prefix.
+    """
+
+    def __init__(self, handle):
+        self._handle = handle
+        self._lock = threading.Lock()
+        self._local = threading.local()
+
+    def for_part(self, part):
+        """Tag this thread's output with the part it belongs to; None to clear."""
+        self._local.part = part
+
+    def write(self, chunk):
+        if not chunk:
+            return
+        part = getattr(self._local, "part", None)
+        with self._lock:
+            if part is None:
+                self._handle.write(chunk)
+            else:
+                self._handle.write("[part %d] %s" % (part, chunk))
+            self._handle.flush()
+
+    def flush(self):
+        with self._lock:
+            self._handle.flush()
+
+
 def beam(log, *args):
     """Run one allowlisted beam command, appending its output to the log.
 
@@ -224,6 +262,41 @@ def write_container(state, container_id, record):
                 "created: %s" % now(),
             ],
         )
+
+
+class Slots:
+    """The account's limit on live sandboxes, held as locked files.
+
+    One slot is one live box, from just before `container create` until its
+    teardown ends. A run without a free slot waits; it is never refused. A
+    process that dies releases its locks, so nothing has to reclaim them.
+    """
+
+    def __init__(self, directory, count):
+        self.directory = Path(directory)
+        self.count = count
+
+    def take(self, stop):
+        """Hold a free slot and return it, or None if `stop` was set first."""
+        self.directory.mkdir(parents=True, exist_ok=True)
+        while not stop.is_set():
+            for index in range(self.count):
+                handle = open(str(self.directory / str(index)), "a+")
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    handle.close()
+                    continue
+                return handle
+            stop.wait(1)
+        return None
+
+    @staticmethod
+    def release(handle):
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def upload(log, worktree, tree, container_id, max_wall):
@@ -413,20 +486,149 @@ def run_local_commands(record, cwd, tree, commit, commands):
     return 0 if verdict == "pass" else 1
 
 
-def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, text):
-    """One command on a Beam sandbox, torn down on every exit path."""
+def run_beam(
+    record,
+    worktree,
+    tree,
+    commit,
+    block,
+    max_wall,
+    rate,
+    state,
+    commands,
+    boxes,
+    concurrency,
+):
+    """The run's commands, each on its own sandbox, torn down on every exit path.
+
+    One part per command, numbered in command order. A pool of workers pulls
+    parts, and each worker owns its box from `container create` to the
+    teardown: the main thread only steps in on a signal. `boxes` caps how many
+    parts are live at once; the rest start as earlier ones finish, and each box
+    holds one of the account's `concurrency` slots while it is live.
+    """
     record = Path(record)
-    log = log_of(record)
+    log_path = log_of(record)
     state = Path(state)
     record.parent.mkdir(parents=True, exist_ok=True)
-    log.parent.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     ttl = max_wall + MARGIN
-    container_id = None
-    started_at = None
-    looked_up = False
-    confirmed = None
-    stopped_at = None
-    status = None
+    parts = len(commands)
+
+    # Shared by the main thread and the workers, all of it under `registry`.
+    registry = threading.Lock()
+    stop = threading.Event()
+    boxes_by_part = {}  # part -> container id, in creation order
+    statuses = {}  # part -> exit status
+    started = {}  # part -> started_at, once read
+    torn_down = {}  # part -> (confirmed, stop time)
+    claimed = set()  # parts whose teardown a thread has taken on
+    slots = Slots(state / "beam" / "slots", concurrency)
+
+    def set_status(part, status):
+        """Store a part's status, unless the main thread took its box away."""
+        with registry:
+            if part in claimed:
+                return
+            statuses.setdefault(part, status)
+
+    def stop_box(container_id):
+        """Stop one box, confirm it gone; return (started_at, confirmed, stop time)."""
+        started_at = started_at_of(log, container_id)
+        confirmed, stopped_at = stop_container(log, container_id)
+        if confirmed:
+            Path(state, "beam", "containers", container_id).unlink(missing_ok=True)
+        return started_at, confirmed, stopped_at
+
+    def tear_down(part):
+        """Stop this part's own box, unless another thread already did."""
+        with registry:
+            if part in claimed:
+                return
+            claimed.add(part)
+            container_id = boxes_by_part.get(part)
+        if container_id is None:
+            return
+        started_at, confirmed, stopped_at = stop_box(container_id)
+        with registry:
+            started[part] = started_at
+            torn_down[part] = (confirmed, stopped_at)
+
+    def tear_down_all():
+        """On a signal: stop every box no worker has taken, before any is lost.
+
+        The snapshot and the stops happen under `registry`, so a worker that is
+        inside `container create` registers its box before this can look past it.
+        """
+        with registry:
+            for part, container_id in boxes_by_part.items():
+                if part in claimed:
+                    continue
+                claimed.add(part)
+                started_at, confirmed, stopped_at = stop_box(container_id)
+                started[part] = started_at
+                torn_down[part] = (confirmed, stopped_at)
+
+    def run_part(part):
+        """One part: a slot, a sandbox, the upload, the command, the teardown."""
+        text = commands[part - 1]
+        slot = slots.take(stop)
+        if slot is None:
+            return
+        log.for_part(part)
+        try:
+            try:
+                with registry:
+                    if stop.is_set():
+                        return
+                    r = beam(
+                        log,
+                        "container",
+                        "create",
+                        "--image-id",
+                        image_id,
+                        "--cpu",
+                        block["cpu"],
+                        "--memory",
+                        block["memory"],
+                        "--ttl",
+                        ttl,
+                        "--format",
+                        "json",
+                    )
+                    data = json_of(r)
+                    if r.returncode != 0 or not data or not data.get("container_id"):
+                        raise BeamError(status_of(r.returncode) or 1)
+                    container_id = data["container_id"]
+                    boxes_by_part[part] = container_id
+                    write_container(state, container_id, record)
+                    with open(str(record), "a") as f:
+                        write_lines(f, ["container.%d: %s" % (part, container_id)])
+                upload(log, worktree, tree, container_id, max_wall)
+                r = beam(
+                    log,
+                    "container",
+                    "exec",
+                    "--timeout",
+                    max_wall,
+                    "--cwd",
+                    "/work",
+                    container_id,
+                    "--",
+                    "sh",
+                    "-c",
+                    text,
+                )
+                set_status(part, status_of(r.returncode))
+            except BeamError as e:
+                set_status(part, e.status)
+            except OSError as e:
+                log.write("suite.py: %s\n" % e)
+                set_status(part, 1)
+        finally:
+            tear_down(part)
+            slots.release(slot)
+            log.for_part(None)
 
     with open(str(record), "w") as f:
         write_lines(
@@ -439,106 +641,99 @@ def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, text)
             ],
         )
     NOTED.clear()
-    with open(str(log), "w") as logf:
+    signum = None
+    workers = []
+    with open(str(log_path), "w") as handle:
+        log = RunLog(handle)
         previous = install_handlers(interrupted)
         try:
             image_id = ensure_image(
-                logf, Path(worktree) / block["dockerfile"], worktree, state
+                log, Path(worktree) / block["dockerfile"], worktree, state
             )
-            # A signal between `create` returning and the ID being on disk
-            # would leak a box no sweep can find. Block them across that window;
-            # a pending one is delivered on unblock and the normal teardown runs.
-            blocked = signal.pthread_sigmask(signal.SIG_BLOCK, SIGNALS)
-            try:
-                r = beam(
-                    logf,
-                    "container",
-                    "create",
-                    "--image-id",
-                    image_id,
-                    "--cpu",
-                    block["cpu"],
-                    "--memory",
-                    block["memory"],
-                    "--ttl",
-                    ttl,
-                    "--format",
-                    "json",
-                )
-                data = json_of(r)
-                if r.returncode != 0 or not data or not data.get("container_id"):
-                    raise BeamError(status_of(r.returncode) or 1)
-                container_id = data["container_id"]
-                write_container(state, container_id, record)
-                with open(str(record), "a") as f:
-                    write_lines(f, ["container: %s" % container_id])
-            finally:
-                signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
-            upload(logf, worktree, tree, container_id, max_wall)
-            r = beam(
-                logf,
-                "container",
-                "exec",
-                "--timeout",
-                max_wall,
-                "--cwd",
-                "/work",
-                container_id,
-                "--",
-                "sh",
-                "-c",
-                text,
-            )
-            status = status_of(r.returncode)
-            started_at = started_at_of(logf, container_id)
-            looked_up = True
-        except Interrupted as e:
-            status = 128 + e.signum
-        except BeamError as e:
-            status = e.status
-        except OSError as e:
-            logf.write("suite.py: %s\n" % e)
-            logf.flush()
-            status = 1
-        finally:
-            # From here on a signal is noted, never raised: the teardown and
-            # the closing lines below have to finish.
-            install_handlers(noting)
-            if container_id is not None:
-                if not looked_up:
-                    started_at = started_at_of(logf, container_id)
-                    looked_up = True
-                confirmed, stopped_at = stop_container(logf, container_id)
-                if confirmed:
-                    Path(state, "beam", "containers", container_id).unlink(
-                        missing_ok=True
-                    )
+            remaining = queue.Queue()
+            for part in range(1, parts + 1):
+                remaining.put(part)
 
-    try:
-        if NOTED and status in (None, 0):
-            status = 128 + NOTED[0]
-        if status is None:
-            status = 1
-        if container_id is None:
-            cost = "0.0000"
-        elif confirmed and started_at is not None:
-            cost = "%.4f" % (rate * (stopped_at - started_at).total_seconds() / 60)
-        else:
-            cost = "%.4f" % (rate * ttl / 60)
-        verdict = "pass" if status == 0 else "fail"
-        lines = [
-            "ended: %s" % now(),
-            "exit.1: %d" % status,
-            "verdict: %s" % verdict,
-            "cost: %s" % cost,
-        ]
-        if container_id is not None:
-            lines.append("teardown: %s" % ("confirmed" if confirmed else "unconfirmed"))
-        lines.append("log: %s" % log.resolve())
-        with open(str(record), "a") as f:
-            write_lines(f, lines)
-    finally:
-        restore_handlers(previous)
+            def work():
+                while not stop.is_set():
+                    try:
+                        part = remaining.get_nowait()
+                    except queue.Empty:
+                        return
+                    run_part(part)
+
+            workers = [
+                threading.Thread(target=work, daemon=True)
+                for _ in range(max(1, min(parts, boxes)))
+            ]
+            for worker in workers:
+                worker.start()
+            while True:
+                alive = [worker for worker in workers if worker.is_alive()]
+                if not alive:
+                    break
+                alive[0].join(0.5)
+        except Interrupted as e:
+            # From here on a signal is noted, never raised: the teardown
+            # and the closing lines have to finish.
+            signum = e.signum
+            install_handlers(noting)
+            stop.set()
+            tear_down_all()
+            for worker in workers:
+                worker.join(60)
+        except BeamError as e:
+            for part in range(1, parts + 1):
+                statuses.setdefault(part, e.status)
+        except OSError as e:
+            log.write("suite.py: %s\n" % e)
+            for part in range(1, parts + 1):
+                statuses.setdefault(part, 1)
+
+        install_handlers(noting)
+        try:
+            for part in range(1, parts + 1):
+                statuses.setdefault(
+                    part, 128 + signum if signum is not None else 1
+                )
+            if NOTED:
+                for part in range(1, parts + 1):
+                    if statuses[part] == 0:
+                        statuses[part] = 128 + NOTED[0]
+            verdict = (
+                "pass"
+                if all(statuses[part] == 0 for part in range(1, parts + 1))
+                else "fail"
+            )
+            cost = 0.0
+            for part in boxes_by_part:
+                confirmed, stopped_at = torn_down.get(part, (False, None))
+                started_at = started.get(part)
+                if confirmed and started_at is not None:
+                    cost += rate * (stopped_at - started_at).total_seconds() / 60
+                else:
+                    cost += rate * ttl / 60
+            lines = ["ended: %s" % now()]
+            lines += [
+                "exit.%d: %d" % (part, statuses[part])
+                for part in range(1, parts + 1)
+            ]
+            lines += ["verdict: %s" % verdict, "cost: %.4f" % cost]
+            lines += [
+                "teardown.%d: %s"
+                % (
+                    part,
+                    "confirmed"
+                    if torn_down.get(part, (False, None))[0]
+                    else "unconfirmed",
+                )
+                for part in sorted(boxes_by_part)
+            ]
+            lines.append("log: %s" % log_path.resolve())
+            with open(str(record), "a") as f:
+                write_lines(f, lines)
+        finally:
+            restore_handlers(previous)
     return 0 if verdict == "pass" else 1
 
 
@@ -596,6 +791,14 @@ def run(a):
     dockerfile = Path(worktree) / block["dockerfile"]
     if not dockerfile.exists():
         return refuse("the Dockerfile %s does not exist" % dockerfile)
+    boxes = 1
+    if block.get("boxes") is not None:
+        try:
+            boxes = int(block["boxes"])
+        except ValueError:
+            boxes = 0
+        if boxes < 1:
+            return refuse("`boxes` in the `## Runner` block is not a positive integer")
     max_wall = a.max_wall
     if max_wall is None:
         try:
@@ -605,12 +808,31 @@ def run(a):
                 "a beam run needs a max wall time: `max wall time` in the "
                 "`## Runner` block, or --max-wall"
             )
-    if from_block and len(commands) > 1:
-        return refuse("several commands run in parallel parts, not yet supported")
-    text = commands[0] if from_block else shlex.join(command)
+    commands = commands if from_block else [shlex.join(command)]
     return run_beam(
-        record, worktree, tree, commit, block, max_wall, a.rate, a.state_dir, text
+        record,
+        worktree,
+        tree,
+        commit,
+        block,
+        max_wall,
+        a.rate,
+        a.state_dir,
+        commands,
+        boxes,
+        a.concurrency,
     )
+
+
+def positive_int(text):
+    """An argparse type for a count that must be at least 1."""
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError("expected a positive integer, got %r" % text)
+    return value
 
 
 def parse_args(argv):
@@ -645,6 +867,16 @@ def parse_args(argv):
         type=float,
         metavar="PER_MINUTE",
         help="currency per wall-minute; required for beam",
+    )
+    p.add_argument(
+        "--concurrency",
+        type=positive_int,
+        default=1,
+        metavar="N",
+        help=(
+            "the account's limit on live sandboxes across runs sharing the "
+            "state dir; a run without a free slot waits (default: 1)"
+        ),
     )
     p.add_argument(
         "--max-wall",

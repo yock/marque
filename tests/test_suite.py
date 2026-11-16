@@ -28,6 +28,11 @@ def beam_calls(tmp):
     return path.read_text().splitlines() if path.exists() else []
 
 
+def call_indexes(calls, prefix):
+    """Where in calls.log the calls that start with prefix are."""
+    return [i for i, call in enumerate(calls) if call.startswith(prefix)]
+
+
 def sh(*args, cwd):
     r = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)
     if r.returncode != 0:
@@ -70,6 +75,25 @@ def make_beam_repo(tmp, block=BEAM_BLOCK):
     sh("git", "add", "-A", cwd=repo)
     sh("git", "commit", "--quiet", "-m", "Add the Beam runner block", cwd=repo)
     return repo, record
+
+
+TWO_PART_BLOCK = """## Runner
+
+runner: beam
+dockerfile: Dockerfile
+cpu: 2
+memory: 4096
+boxes: %d
+max wall time: 3600
+commands:
+- make part-one
+- make part-two
+"""
+
+
+def two_part_block(boxes):
+    """ping's model case: two halves of one suite, each with its own box."""
+    return TWO_PART_BLOCK % boxes
 
 
 def run_suite(repo, record, command):
@@ -279,10 +303,12 @@ class BeamRefusalTest(unittest.TestCase):
                 ["--state-dir", "{state}", "--rate", "1.0"],
                 "max wall time",
             ),
-            "two commands": (
-                BEAM_BLOCK + "- ctest\n",
+            "boxes not a positive integer": (
+                BEAM_BLOCK.replace(
+                    "max wall time: 3600\n", "boxes: none\nmax wall time: 3600\n"
+                ),
                 ["--state-dir", "{state}", "--rate", "1.0"],
-                "parallel parts",
+                "positive integer",
             ),
             "missing dockerfile": (
                 BEAM_BLOCK.replace("Dockerfile", "tools/missing.Dockerfile"),
@@ -305,11 +331,13 @@ class BeamRefusalTest(unittest.TestCase):
 class BeamCase(unittest.TestCase):
     """A Beam repo, its state dir and the stub's call log."""
 
+    BLOCK = BEAM_BLOCK
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = self._tmp.name
-        self.repo, self.record = make_beam_repo(self.tmp)
+        self.repo, self.record = make_beam_repo(self.tmp, self.BLOCK)
         self.state = Path(self.tmp) / "state"
 
     def run_it(self, *args, **kwargs):
@@ -371,7 +399,7 @@ class BeamSandboxTest(BeamCase):
             calls,
         )
         self.assertEqual(live_containers(self.tmp), {})
-        self.assertIn("teardown: confirmed", record_lines(self.record))
+        self.assertIn("teardown.1: confirmed", record_lines(self.record))
         self.assert_no_violations()
 
     def test_the_beam_record_names_the_runner_the_container_the_cost_and_teardown(self):
@@ -381,15 +409,105 @@ class BeamSandboxTest(BeamCase):
         self.assertEqual(
             [line.split(": ", 1)[0] for line in lines],
             [
-                "tree", "commit", "runner", "started", "container",
-                "ended", "exit.1", "verdict", "cost", "teardown", "log",
+                "tree", "commit", "runner", "started", "container.1",
+                "ended", "exit.1", "verdict", "cost", "teardown.1", "log",
             ],
         )
         values = record_values(self.record)
         self.assertEqual(values["runner"], "beam")
-        self.assertEqual(values["container"], "box-1")
+        self.assertEqual(values["container.1"], "box-1")
         self.assertRegex(values["cost"], r"^\d+\.\d{4}$")
-        self.assertEqual(values["teardown"], "confirmed")
+        self.assertEqual(values["teardown.1"], "confirmed")
+        self.assert_no_violations()
+
+
+class BeamParallelPartsTest(BeamCase):
+    """A block's commands are parts, each on its own sandbox."""
+
+    BLOCK = two_part_block(2)
+
+    def test_two_commands_run_on_two_sandboxes_at_once_and_both_pass(self):
+        # The stub sleeps 2 s in every command exec, so the run can only end
+        # in that time if both boxes are live together (boxes: 2, and two
+        # runner slots).
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_EXEC_SLEEP"] = "2"
+        r = self.run_it("--concurrency", "2", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        creates = call_indexes(calls, "container create")
+        stops = call_indexes(calls, "container stop")
+        self.assertEqual(len(creates), 2, calls)
+        self.assertEqual(len(stops), 2, calls)
+        for create in creates:
+            self.assertLess(create, stops[0], calls)
+        values = record_values(self.record)
+        self.assertEqual(
+            sorted([values["container.1"], values["container.2"]]), ["box-1", "box-2"]
+        )
+        self.assertEqual(values["exit.1"], "0")
+        self.assertEqual(values["exit.2"], "0")
+        self.assertEqual(values["verdict"], "pass")
+        self.assertEqual(values["teardown.1"], "confirmed")
+        self.assertEqual(values["teardown.2"], "confirmed")
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assertEqual(list((self.state / "beam" / "containers").iterdir()), [])
+        keys = [line.split(": ", 1)[0] for line in record_lines(self.record)]
+        self.assertEqual(keys[:4], ["tree", "commit", "runner", "started"])
+        self.assertEqual(sorted(keys[4:6]), ["container.1", "container.2"])
+        self.assertEqual(
+            keys[6:],
+            ["ended", "exit.1", "exit.2", "verdict", "cost", "teardown.1",
+             "teardown.2", "log"],
+        )
+        self.assert_no_violations()
+
+    def test_a_failing_part_fails_the_verdict_and_the_others_still_pass(self):
+        # The stub fails only execs whose text contains the match, with the
+        # STUB_BEAM_EXEC_STATUS it was given; 5 is that part's exit status.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_FAIL_MATCH"] = "part-two"
+        env["STUB_BEAM_EXEC_STATUS"] = "5"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        values = record_values(self.record)
+        self.assertEqual(values["exit.1"], "0")
+        self.assertEqual(values["exit.2"], "5")
+        self.assertEqual(values["verdict"], "fail")
+        self.assertEqual(values["teardown.1"], "confirmed")
+        self.assertEqual(values["teardown.2"], "confirmed")
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assert_no_violations()
+
+    def test_cost_is_summed_over_the_boxes(self):
+        # The stub ages every box 600 s = 10 wall-minutes; at 1.0 per minute
+        # two boxes cost 20.0000 plus the couple of seconds the run takes. A
+        # worst-case charge per box would be 2 x 4200/60 = 140.0000.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cost = float(record_values(self.record)["cost"])
+        self.assertGreaterEqual(cost, 20.0000)
+        self.assertLessEqual(cost, 22.0000)
+        self.assert_no_violations()
+
+
+class BeamSerialPartsTest(BeamCase):
+    """`boxes: 1` runs the parts one after the other."""
+
+    BLOCK = two_part_block(1)
+
+    def test_boxes_one_runs_the_parts_one_after_the_other(self):
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        creates = call_indexes(calls, "container create")
+        stops = call_indexes(calls, "container stop")
+        self.assertEqual(len(creates), 2, calls)
+        self.assertEqual(len(stops), 2, calls)
+        self.assertLess(stops[0], creates[1], calls)
+        self.assertEqual(record_values(self.record)["verdict"], "pass")
         self.assert_no_violations()
 
 
@@ -434,7 +552,7 @@ class BeamFailureTest(BeamCase):
         values = record_values(self.record)
         self.assertEqual(values["exit.1"], "7")
         self.assertEqual(values["verdict"], "fail")
-        self.assertEqual(values["teardown"], "confirmed")
+        self.assertEqual(values["teardown.1"], "confirmed")
         self.assertIn("container stop box-1", self.calls())
         self.assertEqual(live_containers(self.tmp), {})
         self.assert_no_violations()
@@ -487,7 +605,7 @@ class BeamSignalTest(unittest.TestCase):
                     values = record_values(record)
                     self.assertEqual(values["exit.1"], str(code))
                     self.assertEqual(values["verdict"], "fail")
-                    self.assertEqual(values["teardown"], "confirmed")
+                    self.assertEqual(values["teardown.1"], "confirmed")
 
 
 class BeamCostTest(BeamCase):
@@ -512,7 +630,7 @@ class BeamCostTest(BeamCase):
         r = self.run_it(env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         values = record_values(self.record)
-        self.assertEqual(values["teardown"], "unconfirmed")
+        self.assertEqual(values["teardown.1"], "unconfirmed")
         self.assertEqual(values["cost"], "70.0000")
         self.assertEqual(
             [p.name for p in (self.state / "beam" / "containers").iterdir()],
@@ -585,7 +703,7 @@ class BeamTeardownSignalTest(unittest.TestCase):
             values = record_values(record)
             self.assertEqual(values["exit.1"], "143")
             self.assertEqual(values["verdict"], "fail")
-            self.assertEqual(values["teardown"], "confirmed")
+            self.assertEqual(values["teardown.1"], "confirmed")
             self.assertIn("log", values)
 
     @staticmethod
@@ -596,6 +714,185 @@ class BeamTeardownSignalTest(unittest.TestCase):
                 return
             time.sleep(0.1)
         raise AssertionError(message)
+
+
+class BeamSlotTest(unittest.TestCase):
+    """Runner concurrency: the account's live-sandbox limit, held per box."""
+
+    def start(self, repo, record, state, env):
+        return subprocess.Popen(
+            [
+                sys.executable, str(SUITE), "run",
+                "--record", str(record),
+                "--runner", "beam",
+                "--state-dir", str(state),
+                "--rate", "1.0",
+                "--concurrency", "1",
+            ],
+            cwd=str(repo),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_a_run_waits_for_a_free_slot_and_starts_when_one_frees_up(self):
+        # Two runs share one state dir and --concurrency 1: the second has no
+        # slot, so it waits for the first box to be torn down and then runs.
+        # It is never refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            repos = []
+            for name in ("a", "b"):
+                (Path(tmp) / name).mkdir()
+                repos.append(make_beam_repo(Path(tmp) / name))
+            state = Path(tmp) / "state"
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "3"
+            procs = [
+                self.start(repo, record, state, env) for repo, record in repos
+            ]
+            try:
+                for p in procs:
+                    p.communicate(timeout=120)
+            finally:
+                for p in procs:
+                    if p.poll() is None:
+                        p.kill()
+                        p.communicate()
+            self.assertEqual([p.returncode for p in procs], [0, 0])
+            calls = beam_calls(tmp)
+            creates = call_indexes(calls, "container create")
+            stops = call_indexes(calls, "container stop")
+            self.assertEqual(len(creates), 2, calls)
+            self.assertEqual(len(stops), 2, calls)
+            self.assertLess(creates[0], stops[0], calls)
+            self.assertLess(stops[0], creates[1], calls)
+
+    def test_a_killed_runs_slot_frees_itself(self):
+        # A dead process's flock is released by the kernel, so the next run
+        # takes the slot at once instead of waiting for the dead box's TTL.
+        # The box it left behind is #48's sweep, not this test's business.
+        with tempfile.TemporaryDirectory() as tmp:
+            repos = []
+            for name in ("a", "b"):
+                (Path(tmp) / name).mkdir()
+                repos.append(make_beam_repo(Path(tmp) / name))
+            state = Path(tmp) / "state"
+            slow = beam_env(tmp)
+            slow["STUB_BEAM_EXEC_SLEEP"] = "30"
+            first = subprocess.Popen(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(repos[0][1]),
+                    "--runner", "beam",
+                    "--state-dir", str(state),
+                    "--rate", "1.0",
+                    "--concurrency", "1",
+                ],
+                cwd=str(repos[0][0]),
+                env=slow,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    if any(
+                        call.startswith("container exec") and "make test" in call
+                        for call in beam_calls(tmp)
+                    ):
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.fail("the first run never reached its command")
+                first.kill()
+                first.wait(timeout=20)
+            finally:
+                if first.poll() is None:
+                    first.kill()
+                    first.wait()
+            quick = beam_env(tmp)
+            quick["STUB_BEAM_EXEC_SLEEP"] = "0"
+            began = time.time()
+            second = subprocess.run(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(repos[1][1]),
+                    "--runner", "beam",
+                    "--state-dir", str(state),
+                    "--rate", "1.0",
+                    "--concurrency", "1",
+                ],
+                cwd=str(repos[1][0]),
+                env=quick,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertLess(time.time() - began, 15)
+
+
+class BeamParallelSignalTest(unittest.TestCase):
+    def test_a_signal_during_a_parallel_run_tears_down_every_sandbox(self):
+        # POSIX: 128 + SIGTERM (15) is 143. Both parts are still running when
+        # the signal lands, so both sandboxes must be stopped, exactly once
+        # each, and the record must still be closed.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_beam_repo(tmp, two_part_block(2))
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "30"
+            p = subprocess.Popen(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(record),
+                    "--runner", "beam",
+                    "--state-dir", str(Path(tmp) / "state"),
+                    "--rate", "1.0",
+                    "--concurrency", "2",
+                ],
+                cwd=str(repo),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    run_lines = [
+                        call
+                        for call in beam_calls(tmp)
+                        if call.startswith("container exec")
+                        and "make part" in call
+                    ]
+                    if len(run_lines) == 2:
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.fail("the suite never reached both commands")
+                p.send_signal(signal.SIGTERM)
+                p.communicate(timeout=60)
+            finally:
+                if p.poll() is None:
+                    p.kill()
+                    p.communicate()
+            self.assertEqual(p.returncode, 1)
+            calls = beam_calls(tmp)
+            stops = [call for call in calls if call.startswith("container stop")]
+            self.assertEqual(len(stops), 2, calls)
+            self.assertEqual(len(set(stops)), 2, calls)
+            self.assertEqual(live_containers(tmp), {})
+            lines = record_lines(record)
+            closing = [line for line in lines if line.startswith("ended:")]
+            self.assertTrue(closing, lines)
+            values = record_values(record)
+            self.assertEqual(values["exit.1"], "143")
+            self.assertEqual(values["exit.2"], "143")
+            self.assertEqual(values["verdict"], "fail")
+            self.assertEqual(values["teardown.1"], "confirmed")
+            self.assertEqual(values["teardown.2"], "confirmed")
+            self.assertIn("log", values)
 
 
 class LocalBlockCommandsTest(unittest.TestCase):
