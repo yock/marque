@@ -480,6 +480,27 @@ class PaidComputeProseTest(unittest.TestCase):
                 self.assertIn(marker, text)
 
 
+# #48: the sweep, the unconfirmed teardown it can leave, and crash recovery.
+class SweepProseTest(unittest.TestCase):
+    def test_the_skill_and_the_extensions_list_the_unconfirmed_teardown_event(self):
+        event = "a runner teardown that could not be confirmed"
+        for path in (SKILL, REFERENCE_DIR / "extensions.md"):
+            with self.subTest(path=path.name):
+                self.assertIn(event, path.read_text())
+
+    def test_crash_recovery_names_the_sweep(self):
+        text = (REFERENCE_DIR / "operations.md").read_text()
+        crash = re.search(r"^## Crash recovery\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+        self.assertIsNotNone(crash, "no `## Crash recovery` section")
+        self.assertIn("suite.py sweep", crash.group(1))
+
+    def test_the_runner_reference_documents_the_sweep(self):
+        text = (REFERENCE_DIR / "runners.md").read_text()
+        for marker in ("## The sweep", "unrecorded", "host", "worst"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+
 # #42: green is bound to the tree (ADR 0001). The prose names the record flag and
 # the seventh safeguard, and offers no second way to be green.
 class SuiteRecordWordingTest(unittest.TestCase):

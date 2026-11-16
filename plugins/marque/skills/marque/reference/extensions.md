@@ -42,6 +42,7 @@ Extra events, and extra or replacement channels.
 - the target branch is red;
 - three failures in a row;
 - a paid-compute cap refusing;
+- a runner teardown that could not be confirmed;
 - a ticket going `needs-info` or `ready-for-human`;
 - the frontier down to externally blocked tickets;
 - a summary every ten landings.
