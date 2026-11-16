@@ -48,7 +48,7 @@ Extra events, and extra or replacement channels.
 
 The default channel is the harness's push, where it has one, otherwise chat. A notify extension may add events and add or replace the channel; every core event still goes out. Turning notifications off entirely is a term of the commission.
 
-Pick, integrate and land have no extension points. Landing variants are commission or `marque.md` options, never free-form extensions, because the landing safeguards are core.
+Pick, integrate and land have no extension points. Landing variants are commission or `marque.md` options, never free-form extensions, because the landing safeguards are core. The integrate point still has none: runner configuration (the `## Runner` block) is an override in `docs/agents/marque.md`, not an extension (→ `reference/runners.md`).
 
 ## Add or tighten, never loosen
 
