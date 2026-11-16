@@ -156,6 +156,43 @@ def read_runner_block(worktree):
     return block
 
 
+def read_daily_cap():
+    """The per-machine `daily cap` from `~/.config/marque/marque.md`, or None.
+
+    It lives in the `## paid compute` section, one `key: value` per line, and
+    runs to the next `## ` heading. A missing file, section or key is no cap;
+    a value that is not a non-negative number raises ValueError.
+    """
+    try:
+        lines = user_config().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    inside = False
+    for line in lines:
+        if not inside:
+            if line.strip() == "## paid compute":
+                inside = True
+            continue
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if not stripped or stripped.startswith("```"):
+            continue
+        if ": " not in stripped:
+            continue
+        key, value = stripped.split(": ", 1)
+        if key.strip() != "daily cap":
+            continue
+        try:
+            cap = float(value.strip())
+        except ValueError:
+            raise ValueError("daily cap is not a number: %r" % value)
+        if cap < 0:
+            raise ValueError("daily cap is negative: %r" % value)
+        return cap
+    return None
+
+
 class RunLog:
     """The run's one log, shared by every part without their output interleaving.
 
@@ -378,6 +415,30 @@ def spend_so_far(rows):
     return total
 
 
+def today_spend(rows, day):
+    """What runs reserved on `day` (UTC, YYYY-MM-DD) spent: settle else reserve.
+
+    A run counts on the day of its reservation, even if it settles after
+    midnight. A settlement with no reservation of its own counts on its own day.
+    """
+    reserved = {}
+    settled = {}
+    for row in rows:
+        if row["kind"] == "reserve":
+            reserved[row["run"]] = row
+        elif row["kind"] == "settle":
+            settled[row["run"]] = row
+    total = 0.0
+    for run, row in reserved.items():
+        if row["time"][:10] != day:
+            continue
+        total += settled[run]["amount"] if run in settled else row["amount"]
+    for run, row in settled.items():
+        if run not in reserved and row["time"][:10] == day:
+            total += row["amount"]
+    return total
+
+
 def append_ledger(state, kind, entries):
     """Append one row per (run id, amount, note); caller holds the lock."""
     path = Path(state) / "spend.tsv"
@@ -393,8 +454,8 @@ def append_ledger(state, kind, entries):
         os.fsync(f.fileno())
 
 
-def reserve(state, entries, cap):
-    """Reserve each entry's worst case, or return why the cap refuses them."""
+def reserve(state, entries, cap, daily_cap):
+    """Reserve each entry's worst case, or return why the tighter cap refuses it."""
     with ledger_lock(state), ledger_lock(machine_dir()):
         spent = spend_so_far(ledger_rows(state))
         wanted = sum(amount for _, amount, _ in entries)
@@ -404,6 +465,13 @@ def reserve(state, entries, cap):
                 wanted,
                 cap,
             )
+        if daily_cap is not None:
+            today = today_spend(ledger_rows(machine_dir()), now()[:10])
+            if today + wanted > daily_cap:
+                return (
+                    "daily cap: spend %.4f today + reservation %.4f "
+                    "> daily cap %.4f" % (today, wanted, daily_cap)
+                )
         append_ledger(state, "reserve", entries)
         append_ledger(machine_dir(), "reserve", entries)
     return None
@@ -1095,6 +1163,12 @@ def run(a):
                 "a beam run needs a max wall time: `max wall time` in the "
                 "`## Runner` block, or --max-wall"
             )
+    try:
+        daily_cap = read_daily_cap()
+    except ValueError:
+        return refuse(
+            "`daily cap` in ~/.config/marque/marque.md is not a non-negative number"
+        )
     commands = commands if from_block else [shlex.join(command)]
     image_id = cached_image(Discard(), dockerfile, a.state_dir)
     run_id = new_run_id()
@@ -1103,7 +1177,7 @@ def run(a):
     ]
     if image_id is None:
         entries.append((run_id + ".build", a.rate * MARGIN / 60, "build"))
-    reason = reserve(a.state_dir, entries, a.cap)
+    reason = reserve(a.state_dir, entries, a.cap, daily_cap)
     if reason is not None:
         print("suite.py: paid compute refused: %s" % reason, file=sys.stderr)
         if fallback == "no":

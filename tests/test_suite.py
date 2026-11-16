@@ -7,7 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -56,6 +56,26 @@ def machine_rows(home):
         _, kind, run, amount, _ = line.split("\t")
         rows.append((kind, run, float(amount)))
     return rows
+
+
+def write_daily_cap(home, value):
+    """Write the per-user config with a `## paid compute` section and a daily cap."""
+    path = Path(home) / ".config" / "marque" / "marque.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "## paid compute\n\nrunner: beam\nrate: 1.0\ncap: 20\n"
+        "daily cap: %s\n" % value
+    )
+
+
+def seed_machine_ledger(home, stamp, *rows):
+    """Pre-seed the per-machine ledger: (kind, run, amount) rows at one UTC stamp."""
+    path = Path(home) / ".local" / "share" / "marque" / "spend.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "time\tkind\trun\tamount\tnote\n"
+        + "".join("%s\t%s\t%s\t%s\tseed\n" % ((stamp,) + row) for row in rows)
+    )
 
 
 def seed_ledger(state, *rows):
@@ -413,6 +433,15 @@ class BeamCase(unittest.TestCase):
         r = self.run_it()
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def fresh_home(self, daily_cap=None):
+        """An env on a new empty HOME, so the machine ledger starts at zero."""
+        home = Path(tempfile.mkdtemp(dir=self.tmp))
+        env = beam_env(self.tmp)
+        env["HOME"] = str(home)
+        if daily_cap is not None:
+            write_daily_cap(home, daily_cap)
+        return env
+
     def assert_no_violations(self):
         # The stub logs a VIOLATION for anything outside the allowlist, for a
         # create without --ttl, for an exec without --timeout and for an upload
@@ -718,6 +747,84 @@ class BeamCapTest(BeamCase):
             [row for row in added if row[1].endswith(".build")], [], added
         )
         self.assert_no_violations()
+
+
+class DailyCapTest(BeamCase):
+    """The optional per-machine daily cap: the tighter of the two caps wins."""
+
+    BLOCK = BEAM_BLOCK.replace("- make test", "- true")
+
+    def test_a_daily_cap_tighter_than_the_commission_cap_refuses_the_run(self):
+        # A cached image reserves only the run's 3600 + 600 s at 1.0 per
+        # minute: 70.0000. The daily cap of 50 is the tighter one.
+        self.warm_image()
+        before = len(self.calls())
+        r = self.run_it(cap="1000", env=self.fresh_home("50"))
+        reason = (
+            "daily cap: spend 0.0000 today + reservation 70.0000 > daily cap 50.0000"
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("suite.py: paid compute refused: %s" % reason, r.stderr)
+        self.assertEqual(
+            record_lines(self.record)[2:4],
+            ["runner: local", "refused: %s" % reason],
+        )
+        added = self.calls()[before:]
+        self.assertFalse(
+            [call for call in added if call.startswith("container create")], added
+        )
+        self.assert_no_violations()
+
+    def test_a_commission_cap_tighter_than_the_daily_cap_refuses_the_run(self):
+        # No cached image: 50.0000 spent + 80.0000 reserved (70 run + 10 build)
+        # is past the commission's 50 cap, while the daily cap of 1000 is not.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="50", env=self.fresh_home("1000"))
+        reason = "cap: spend 50.0000 + reservation 80.0000 > cap 50.0000"
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("suite.py: paid compute refused: %s" % reason, r.stderr)
+        self.assertEqual(
+            record_lines(self.record)[2:4],
+            ["runner: local", "refused: %s" % reason],
+        )
+        self.assert_no_violations()
+
+    def test_yesterdays_reservation_does_not_count_against_todays_cap(self):
+        # 100.0000 spent yesterday UTC, a daily cap of 80 today: the reservation
+        # is counted against the day of the reservation, so nothing refuses it.
+        self.warm_image()
+        env = self.fresh_home("80")
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime(
+            "%Y-%m-%d"
+        )
+        seed_machine_ledger(
+            env["HOME"],
+            yesterday + "T23:59:00Z",
+            ("reserve", "old", "100.0000"),
+            ("settle", "old", "100.0000"),
+        )
+        r = self.run_it(cap="1000", env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("paid compute refused", r.stderr)
+        self.assertTrue(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertEqual(record_values(self.record)["runner"], "beam")
+        self.assert_no_violations()
+
+    def test_a_bad_daily_cap_exits_2_and_creates_nothing(self):
+        write_daily_cap(Path(self.tmp) / "home", "lots")
+        r = self.run_it()
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn(
+            "`daily cap` in ~/.config/marque/marque.md is not a non-negative number",
+            r.stderr,
+        )
+        self.assertFalse(self.record.exists())
+        self.assertEqual(self.calls(), [])
+        self.assertFalse((self.state / "spend.tsv").exists())
+        self.assertEqual(machine_rows(Path(self.tmp) / "home"), [])
 
 
 class MachineLedgerTest(BeamCase):
