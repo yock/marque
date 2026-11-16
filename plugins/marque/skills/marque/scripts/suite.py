@@ -309,6 +309,16 @@ def new_run_id():
     )
 
 
+def machine_dir():
+    """The per-machine ledger's directory: paid runs across every repo on this host."""
+    return Path(os.environ["HOME"]) / ".local" / "share" / "marque"
+
+
+def user_config():
+    """The per-user config, `~/.config/marque/marque.md`."""
+    return Path(os.environ["HOME"]) / ".config" / "marque" / "marque.md"
+
+
 @contextlib.contextmanager
 def ledger_lock(state):
     """The ledger's exclusive lock, blocking and held across a read and its append."""
@@ -385,7 +395,7 @@ def append_ledger(state, kind, entries):
 
 def reserve(state, entries, cap):
     """Reserve each entry's worst case, or return why the cap refuses them."""
-    with ledger_lock(state):
+    with ledger_lock(state), ledger_lock(machine_dir()):
         spent = spend_so_far(ledger_rows(state))
         wanted = sum(amount for _, amount, _ in entries)
         if spent + wanted > cap:
@@ -395,13 +405,15 @@ def reserve(state, entries, cap):
                 cap,
             )
         append_ledger(state, "reserve", entries)
+        append_ledger(machine_dir(), "reserve", entries)
     return None
 
 
 def settle(state, run_id, amount, note):
     """Replace a run's reservation with what it actually spent."""
-    with ledger_lock(state):
+    with ledger_lock(state), ledger_lock(machine_dir()):
         append_ledger(state, "settle", [(run_id, amount, note)])
+        append_ledger(machine_dir(), "settle", [(run_id, amount, note)])
 
 
 class Slots:

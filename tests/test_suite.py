@@ -46,6 +46,18 @@ def spend_rows(state):
     return rows
 
 
+def machine_rows(home):
+    """(kind, run, amount) for each row of the per-machine ledger."""
+    path = Path(home) / ".local" / "share" / "marque" / "spend.tsv"
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text().splitlines()[1:]:
+        _, kind, run, amount, _ = line.split("\t")
+        rows.append((kind, run, float(amount)))
+    return rows
+
+
 def seed_ledger(state, *rows):
     """Pre-seed the ledger in its documented format: (kind, run, amount) rows."""
     path = Path(state) / "spend.tsv"
@@ -704,6 +716,23 @@ class BeamCapTest(BeamCase):
         added = spend_rows(self.state)[len(before):]
         self.assertEqual(
             [row for row in added if row[1].endswith(".build")], [], added
+        )
+        self.assert_no_violations()
+
+
+class MachineLedgerTest(BeamCase):
+    """Every paid run is also counted in the per-machine ledger, across repos."""
+
+    BLOCK = BEAM_BLOCK.replace("- make test", "- true")
+
+    def test_a_beam_run_writes_the_same_run_ids_to_both_ledgers(self):
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        commission = spend_rows(self.state)
+        machine = machine_rows(Path(self.tmp) / "home")
+        self.assertTrue(commission, commission)
+        self.assertEqual(
+            sorted(commission), sorted(machine), (commission, machine)
         )
         self.assert_no_violations()
 
@@ -1429,6 +1458,7 @@ class LocalSpendTest(unittest.TestCase):
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertFalse((state / "spend.tsv").exists())
+            self.assertEqual(machine_rows(Path(tmp) / "home"), [])
 
 
 class LocalBlockCommandsTest(unittest.TestCase):
