@@ -52,7 +52,7 @@ suite.py run --record FILE --runner beam --state-dir DIR --rate PER_MINUTE [--ma
 
 `--rate` is currency per **wall-minute**, passed by the orchestrator from the commission's Paid compute term. `suite.py` never reads `plan.md`. A Beam run without `--rate` or `--state-dir`, or with no max wall time, is refused with exit 2 before anything is created or written.
 
-`MARGIN = 600` is a constant in `suite.py`: the TTL is the max wall time plus 600 seconds. That leaves ten minutes for the upload and the teardown after the suite's own deadline. The same margin will size #45's reservation.
+`MARGIN = 600` is a constant in `suite.py`: the TTL is the max wall time plus 600 seconds. That leaves ten minutes for the upload and the teardown after the suite's own deadline. The same margin sizes a reservation before the box exists.
 
 With `-- CMD`, a Beam run sends the argv as one `sh -c <shlex.join(CMD)>`.
 
