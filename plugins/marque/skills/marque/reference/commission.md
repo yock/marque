@@ -71,6 +71,21 @@ Landing terms beyond the block — the target branch, the modes and their safegu
 
 The orchestrator passes the rate, cap and runner concurrency to `suite.py` as `--rate`, `--cap` and `--concurrency` (→ `reference/runners.md`).
 
+The Paid compute term's defaults can come from a `## paid compute` section in `~/.config/marque/marque.md`, one `key: value` per line:
+
+```markdown
+## paid compute
+
+runner: beam
+rate: 0.12
+cap: 20
+concurrency: 2
+max wall time: 1800
+daily cap: 15
+```
+
+The orchestrator offers these defaults at commission, and the terms agreed in `plan.md` win; they are still passed as flags. `daily cap` is the optional **per-machine daily cap**, counted across every repo on the machine per UTC day, because they share one provider account. `suite.py` reads it itself and never reads `plan.md`. The commission's `cap` and the machine's `daily cap` both apply, and the tighter one wins.
+
 For `pr` mode, recommend the forge's **branch must be up to date before merging** setting. With it, the forge never merges onto a target that moved after the integration run, so `finish`'s tree check (`reference/landing.md`) stays quiet.
 
 ## 6. `pr` with "the developer approves"

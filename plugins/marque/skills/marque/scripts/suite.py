@@ -17,12 +17,17 @@ sandbox each — on Beam instead, with Marque owning the whole lifecycle:
 build the image, create the containers, upload the exact tree, run, tear
 down, account. It needs `--state-dir`, `--rate` and `--cap`, and takes
 `--concurrency`, the account's limit on live sandboxes: a run without a free
-slot waits. Every paid run reserves its worst case against `--cap` first and
-settles it at teardown.
+slot waits. Every paid run reserves its worst case against `--cap` and the optional
+per-machine `daily cap` first and settles it at teardown.
+
+`spend --state-dir DIR [--cap AMOUNT]` prints spend against the commission's
+cap and the machine's daily cap, so the figures can be checked against the
+provider's dashboard.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
-git worktree, no command, a missing Beam term), nothing written; 3 paid
-compute refused when the block says `local fallback: no`.
+git worktree, no command, a missing Beam term, a bad per-machine `daily cap`),
+nothing written; 3 paid compute refused when the block says
+`local fallback: no`.
 """
 import argparse
 import contextlib

@@ -11,6 +11,8 @@ Two optional files, each with a `## <point>` section per point it covers:
 
 Where both cover the same point, the project's text applies after the user's. Marque reads these two files and nothing else: there is no registry, and a skill installed in the harness is not discovered as an extension.
 
+`~/.config/marque/marque.md` may also hold a `## paid compute` section. That section is settings, not an extension: defaults for the commission's paid-compute terms and the per-machine daily cap (→ `reference/commission.md`).
+
 ## Approval
 
 Before the first ticket, the orchestrator lists the active extensions — one line each, with the scripts each would run — and the developer approves the list as part of the commission. The approved list goes in `plan.md`. An extension that changes mid-run takes effect only after the developer re-approves it. Nothing activates silently.
@@ -45,7 +47,7 @@ Extra events, and extra or replacement channels.
 - a runner teardown that could not be confirmed;
 - a ticket going `needs-info` or `ready-for-human`;
 - the frontier down to externally blocked tickets;
-- a summary every ten landings.
+- a summary every ten landings, with spend against both caps (`suite.py spend`).
 
 The default channel is the harness's push, where it has one, otherwise chat. A notify extension may add events and add or replace the channel; every core event still goes out. Turning notifications off entirely is a term of the commission.
 

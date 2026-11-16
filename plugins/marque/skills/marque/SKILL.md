@@ -26,7 +26,7 @@ Extensions may add to or tighten these; none may loosen them.
 ## Before the first ticket
 
 - **State dir:** `~/.local/share/marque/<repo-name>`, overridable in `docs/agents/marque.md`. It holds `plan.md`, `ledger.tsv`, `briefs/`, `specs/`, `logs/` and `landing/`. Create it. After any context summary, read `plan.md`, then run `ledger.py --state-dir <dir> recover`.
-- **Commission:** agree it with the developer and record it in `plan.md` — authority, landing mode, concurrency, implementer model and variant, fallback, paid compute (runner, rate, cap and runner concurrency). Then apply the **commission** extensions (→ `reference/extensions.md`). → `reference/commission.md`
+- **Commission:** agree it with the developer and record it in `plan.md` — authority, landing mode, concurrency, implementer model and variant, fallback, paid compute (runner, rate, cap, runner concurrency and the per-machine daily cap). Then apply the **commission** extensions (→ `reference/extensions.md`). → `reference/commission.md`
 - **Specs:** split the parent specs the queue names with `split_spec.py --backend B --repo O/N [--host H] --state-dir <dir> SPEC...`; read only the sections a ticket names.
 
 ## The loop, per ticket
@@ -47,7 +47,7 @@ A question goes on the ticket, never only in chat: numbered, each with a recomme
 
 ## Notify
 
-On the core events — target branch red, three failures in a row, a paid-compute cap refusing (once per commission), a runner teardown that could not be confirmed, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Send a short summary every ten landings. Apply the **notify** extensions (→ `reference/extensions.md`). → `reference/operations.md`
+On the core events — target branch red, three failures in a row, a paid-compute cap refusing (once per commission), a runner teardown that could not be confirmed, a ticket going `needs-info` or `ready-for-human`, the frontier down to externally blocked tickets — **push a notification**. Send a short summary every ten landings, with spend against both caps (`suite.py spend`). Apply the **notify** extensions (→ `reference/extensions.md`). → `reference/operations.md`
 
 ## Rules that held
 

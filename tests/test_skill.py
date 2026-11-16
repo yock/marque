@@ -501,6 +501,42 @@ class SweepProseTest(unittest.TestCase):
                 self.assertIn(marker, text)
 
 
+# #46: the per-machine daily cap, the machine ledger and the spend report.
+class SpendReportProseTest(unittest.TestCase):
+    def test_the_ten_landing_summary_names_spend_against_both_caps(self):
+        text = SKILL.read_text()
+        for marker in ("spend against both caps", "suite.py spend"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_extensions_says_the_paid_compute_section_is_settings(self):
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        for marker in ("## paid compute", "settings, not an extension"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_commission_documents_the_defaults_and_the_daily_cap(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in (
+            "## paid compute",
+            "daily cap",
+            "~/.config/marque/marque.md",
+            "tighter",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_runner_reference_names_the_machine_ledger_and_the_spend_command(self):
+        text = (REFERENCE_DIR / "runners.md").read_text()
+        for marker in (
+            "~/.local/share/marque/spend.tsv",
+            "daily cap:",
+            "suite.py spend",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+
 # #42: green is bound to the tree (ADR 0001). The prose names the record flag and
 # the seventh safeguard, and offers no second way to be green.
 class SuiteRecordWordingTest(unittest.TestCase):
