@@ -28,6 +28,26 @@ def beam_calls(tmp):
     return path.read_text().splitlines() if path.exists() else []
 
 
+def spend_rows(state):
+    """(kind, run, amount) for each row of the commission ledger."""
+    path = Path(state) / "spend.tsv"
+    rows = []
+    for line in path.read_text().splitlines()[1:]:
+        _, kind, run, amount, _ = line.split("\t")
+        rows.append((kind, run, float(amount)))
+    return rows
+
+
+def seed_ledger(state, *rows):
+    """Pre-seed the ledger in its documented format: (kind, run, amount) rows."""
+    path = Path(state) / "spend.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "time\tkind\trun\tamount\tnote\n"
+        + "".join("2026-01-01T00:00:00Z\t%s\t%s\t%s\tseed\n" % row for row in rows)
+    )
+
+
 def call_indexes(calls, prefix):
     """Where in calls.log the calls that start with prefix are."""
     return [i for i, call in enumerate(calls) if call.startswith(prefix)]
@@ -279,7 +299,7 @@ class BeamStubAllowlistTest(unittest.TestCase):
             self.assertIn("status", violations[0])
 
 
-def beam_ok(repo, record, tmp, *args, env=None):
+def beam_ok(repo, record, tmp, *args, env=None, cap="1000000"):
     state = str(Path(tmp) / "state")
     return run_beam(
         repo,
@@ -288,7 +308,7 @@ def beam_ok(repo, record, tmp, *args, env=None):
         "--runner", "beam",
         "--state-dir", state,
         "--rate", "1.0",
-        "--cap", "1000000",
+        "--cap", cap,
         *args,
         env=env,
     )
@@ -526,6 +546,80 @@ class BeamSerialPartsTest(BeamCase):
         self.assertEqual(len(stops), 2, calls)
         self.assertLess(stops[0], creates[1], calls)
         self.assertEqual(record_values(self.record)["verdict"], "pass")
+        self.assert_no_violations()
+
+
+class BeamCapTest(BeamCase):
+    """The commission's cap: reserve the worst case before starting, refuse, fall back."""
+
+    BLOCK = BEAM_BLOCK.replace("- make test", "- true")
+
+    def test_only_the_reservation_pushing_spend_past_the_cap_refuses_the_run(self):
+        # One part at 1.0 per minute for 3600 + 600 s is 70.0000, plus 600 s of
+        # build at 1.0 is 10.0000: 50.0000 spent + 80.0000 reserved = 130.0000,
+        # past the 100 cap although the spend so far is under it.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="100")
+        reason = "cap: spend 50.0000 + reservation 80.0000 > cap 100.0000"
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("suite.py: paid compute refused: %s" % reason, r.stderr)
+        self.assertEqual(
+            record_lines(self.record)[2:4],
+            ["runner: local", "refused: %s" % reason],
+        )
+        self.assertEqual(record_values(self.record)["verdict"], "pass")
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("image build")],
+            self.calls(),
+        )
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertEqual(spend_rows(self.state), [("settle", "prior", 50.0)])
+        self.assert_no_violations()
+
+    def test_a_reservation_that_lands_exactly_on_the_cap_is_not_refused(self):
+        # 50.0000 spent + 80.0000 reserved is exactly the 130 cap, and the cap
+        # refuses only what would pass it. So the run is a Beam run.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="130")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("paid compute refused", r.stderr)
+        self.assertTrue(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertEqual(record_values(self.record)["runner"], "beam")
+        self.assert_no_violations()
+
+
+class BeamNoFallbackTest(BeamCase):
+    """`local fallback: no`: a refused run has nowhere else to go."""
+
+    BLOCK = (
+        BEAM_BLOCK.replace("- make test", "- true")
+        .replace("max wall time: 3600\n", "max wall time: 3600\nlocal fallback: no\n")
+    )
+
+    def test_a_refused_run_with_no_local_fallback_exits_3_and_creates_nothing(self):
+        # The same 130.0000 against the 100 cap as the fallback case, but the
+        # suite cannot run on the developer's machine.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="100")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("suite.py: paid compute refused", r.stderr)
+        self.assertFalse(self.record.exists())
+        self.assertFalse(Path(str(self.record.with_suffix(".log"))).exists())
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("image build")],
+            self.calls(),
+        )
+        self.assertEqual(spend_rows(self.state), [("settle", "prior", 50.0)])
         self.assert_no_violations()
 
 
@@ -917,6 +1011,27 @@ class BeamParallelSignalTest(unittest.TestCase):
             self.assertEqual(values["teardown.1"], "confirmed")
             self.assertEqual(values["teardown.2"], "confirmed")
             self.assertIn("log", values)
+
+
+class LocalSpendTest(unittest.TestCase):
+    def test_a_local_run_writes_no_ledger_rows(self):
+        # The ledger is the paid-compute account; a local run spends nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_repo(tmp)
+            state = Path(tmp) / "state"
+            r = subprocess.run(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(record),
+                    "--state-dir", str(state),
+                    "--", "true",
+                ],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((state / "spend.tsv").exists())
 
 
 class LocalBlockCommandsTest(unittest.TestCase):
