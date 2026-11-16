@@ -537,6 +537,67 @@ class BeamMaxWallTest(BeamCase):
         self.assert_no_violations()
 
 
+class BeamTeardownSignalTest(unittest.TestCase):
+    def test_a_signal_during_teardown_still_finishes_it_and_writes_the_record(self):
+        # The first SIGTERM interrupts the run; the second lands while the
+        # stub's `container stop` is still working. Teardown must finish, and
+        # the closing lines must still be written. 143 is POSIX 128 + SIGTERM.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_beam_repo(tmp)
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "30"
+            env["STUB_BEAM_STOP_SLEEP"] = "3"
+            p = subprocess.Popen(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(record),
+                    "--runner", "beam",
+                    "--state-dir", str(Path(tmp) / "state"),
+                    "--rate", "1.0",
+                ],
+                cwd=str(repo),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                self.wait_for(
+                    lambda: any(
+                        call.startswith("container exec") and "make test" in call
+                        for call in beam_calls(tmp)
+                    ),
+                    "the suite never reached the run command",
+                )
+                p.send_signal(signal.SIGTERM)
+                self.wait_for(
+                    lambda: "container stop box-1" in beam_calls(tmp),
+                    "the suite never reached the teardown",
+                )
+                p.send_signal(signal.SIGTERM)
+                p.communicate(timeout=60)
+            finally:
+                if p.poll() is None:
+                    p.kill()
+                    p.communicate()
+            self.assertEqual(p.returncode, 1)
+            self.assertEqual(live_containers(tmp), {})
+            values = record_values(record)
+            self.assertEqual(values["exit.1"], "143")
+            self.assertEqual(values["verdict"], "fail")
+            self.assertEqual(values["teardown"], "confirmed")
+            self.assertIn("log", values)
+
+    @staticmethod
+    def wait_for(condition, message, seconds=20):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if condition():
+                return
+            time.sleep(0.1)
+        raise AssertionError(message)
+
+
 class LocalBlockCommandsTest(unittest.TestCase):
     def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
         # POSIX: `true` exits 0 and `false` exits 1. A later failure must not

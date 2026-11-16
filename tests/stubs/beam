@@ -16,6 +16,8 @@ STUB_BEAM_EXEC_STATUS   the status a non-extraction `container exec` exits
                         with (default 0).
 STUB_BEAM_STOP_IGNORED  when 1, `container stop` leaves the box live, so
                         teardown cannot be confirmed.
+STUB_BEAM_STOP_SLEEP    seconds `container stop` sleeps before it removes the
+                        box (default 0), so a test can signal during teardown.
 
 Only `image build`, `image get`, `container create`, `container cp`,
 `container exec`, `container stop` and `container list` are allowed. Anything
@@ -155,6 +157,7 @@ def main(argv):
 
     if verb == ("container", "stop"):
         container_id = argv[2] if len(argv) > 2 else ""
+        time.sleep(float(os.environ.get("STUB_BEAM_STOP_SLEEP", "0")))
         if os.environ.get("STUB_BEAM_STOP_IGNORED") != "1":
             live = load("containers.json", {})
             live.pop(container_id, None)

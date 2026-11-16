@@ -297,16 +297,28 @@ def stop_container(log, container_id):
     return False, None
 
 
+SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+
+# Signals that arrived once teardown had started. The teardown has to finish,
+# so they are noted rather than raised and folded into the record afterwards.
+NOTED = []
+
+
 def interrupted(signum, frame):
     """A signal becomes an exception, so the teardown in finally always runs."""
     raise Interrupted(signum)
 
 
-def install_handlers():
+def noting(signum, frame):
+    """During teardown a signal is only noted; it must not abort the teardown."""
+    NOTED.append(signum)
+
+
+def install_handlers(handler):
     previous = {}
-    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+    for sig in SIGNALS:
         try:
-            previous[sig] = signal.signal(sig, interrupted)
+            previous[sig] = signal.signal(sig, handler)
         except (ValueError, OSError):
             pass
     return previous
@@ -426,34 +438,42 @@ def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, text)
                 "started: %s" % now(),
             ],
         )
+    NOTED.clear()
     with open(str(log), "w") as logf:
-        previous = install_handlers()
+        previous = install_handlers(interrupted)
         try:
             image_id = ensure_image(
                 logf, Path(worktree) / block["dockerfile"], worktree, state
             )
-            r = beam(
-                logf,
-                "container",
-                "create",
-                "--image-id",
-                image_id,
-                "--cpu",
-                block["cpu"],
-                "--memory",
-                block["memory"],
-                "--ttl",
-                ttl,
-                "--format",
-                "json",
-            )
-            data = json_of(r)
-            if r.returncode != 0 or not data or not data.get("container_id"):
-                raise BeamError(status_of(r.returncode) or 1)
-            container_id = data["container_id"]
-            write_container(state, container_id, record)
-            with open(str(record), "a") as f:
-                write_lines(f, ["container: %s" % container_id])
+            # A signal between `create` returning and the ID being on disk
+            # would leak a box no sweep can find. Block them across that window;
+            # a pending one is delivered on unblock and the normal teardown runs.
+            blocked = signal.pthread_sigmask(signal.SIG_BLOCK, SIGNALS)
+            try:
+                r = beam(
+                    logf,
+                    "container",
+                    "create",
+                    "--image-id",
+                    image_id,
+                    "--cpu",
+                    block["cpu"],
+                    "--memory",
+                    block["memory"],
+                    "--ttl",
+                    ttl,
+                    "--format",
+                    "json",
+                )
+                data = json_of(r)
+                if r.returncode != 0 or not data or not data.get("container_id"):
+                    raise BeamError(status_of(r.returncode) or 1)
+                container_id = data["container_id"]
+                write_container(state, container_id, record)
+                with open(str(record), "a") as f:
+                    write_lines(f, ["container: %s" % container_id])
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
             upload(logf, worktree, tree, container_id, max_wall)
             r = beam(
                 logf,
@@ -481,39 +501,44 @@ def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, text)
             logf.flush()
             status = 1
         finally:
-            try:
-                if container_id is not None:
-                    if not looked_up:
-                        started_at = started_at_of(logf, container_id)
-                        looked_up = True
-                    confirmed, stopped_at = stop_container(logf, container_id)
-                    if confirmed:
-                        Path(state, "beam", "containers", container_id).unlink(
-                            missing_ok=True
-                        )
-            finally:
-                restore_handlers(previous)
+            # From here on a signal is noted, never raised: the teardown and
+            # the closing lines below have to finish.
+            install_handlers(noting)
+            if container_id is not None:
+                if not looked_up:
+                    started_at = started_at_of(logf, container_id)
+                    looked_up = True
+                confirmed, stopped_at = stop_container(logf, container_id)
+                if confirmed:
+                    Path(state, "beam", "containers", container_id).unlink(
+                        missing_ok=True
+                    )
 
-    if status is None:
-        status = 1
-    if container_id is None:
-        cost = "0.0000"
-    elif confirmed and started_at is not None:
-        cost = "%.4f" % (rate * (stopped_at - started_at).total_seconds() / 60)
-    else:
-        cost = "%.4f" % (rate * ttl / 60)
-    verdict = "pass" if status == 0 else "fail"
-    lines = [
-        "ended: %s" % now(),
-        "exit.1: %d" % status,
-        "verdict: %s" % verdict,
-        "cost: %s" % cost,
-    ]
-    if container_id is not None:
-        lines.append("teardown: %s" % ("confirmed" if confirmed else "unconfirmed"))
-    lines.append("log: %s" % log.resolve())
-    with open(str(record), "a") as f:
-        write_lines(f, lines)
+    try:
+        if NOTED and status in (None, 0):
+            status = 128 + NOTED[0]
+        if status is None:
+            status = 1
+        if container_id is None:
+            cost = "0.0000"
+        elif confirmed and started_at is not None:
+            cost = "%.4f" % (rate * (stopped_at - started_at).total_seconds() / 60)
+        else:
+            cost = "%.4f" % (rate * ttl / 60)
+        verdict = "pass" if status == 0 else "fail"
+        lines = [
+            "ended: %s" % now(),
+            "exit.1: %d" % status,
+            "verdict: %s" % verdict,
+            "cost: %s" % cost,
+        ]
+        if container_id is not None:
+            lines.append("teardown: %s" % ("confirmed" if confirmed else "unconfirmed"))
+        lines.append("log: %s" % log.resolve())
+        with open(str(record), "a") as f:
+            write_lines(f, lines)
+    finally:
+        restore_handlers(previous)
     return 0 if verdict == "pass" else 1
 
 
