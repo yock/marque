@@ -813,6 +813,41 @@ class DailyCapTest(BeamCase):
         self.assertEqual(record_values(self.record)["runner"], "beam")
         self.assert_no_violations()
 
+    def test_two_state_dirs_count_against_the_same_daily_cap(self):
+        # State dir 1's run is aged 600 s, so it settles about 10.0000 at 1.0
+        # per minute. State dir 2 has no image, so it reserves 70.0000 for the
+        # run plus 10.0000 for the build: 80.0000. Ten plus eighty passes 85.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+
+        def run_in(state):
+            # The stub checks that a box is recorded in the state dir it was given.
+            env["STUB_BEAM_ID_DIR"] = str(state / "beam" / "containers")
+            return run_beam(
+                self.repo, self.record, self.tmp,
+                "--runner", "beam", "--state-dir", str(state),
+                "--rate", "1.0", "--cap", "1000000", env=env,
+            )
+
+        first = Path(self.tmp) / "state-a"
+        r = run_in(first)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        home = Path(self.tmp) / "home"
+        write_daily_cap(home, "85")
+        second = Path(self.tmp) / "state-b"
+        r = run_in(second)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("daily cap: spend 10.", r.stderr)
+        self.assertIn("reservation 80.0000", r.stderr)
+        self.assertIn("> daily cap 85.0000", r.stderr)
+        self.assertFalse((second / "spend.tsv").exists())
+        write_daily_cap(home, "200")
+        r = run_in(Path(self.tmp) / "state-c")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("paid compute refused", r.stderr)
+        self.assertEqual(record_values(self.record)["runner"], "beam")
+        self.assert_no_violations()
+
     def test_a_bad_daily_cap_exits_2_and_creates_nothing(self):
         write_daily_cap(Path(self.tmp) / "home", "lots")
         r = self.run_it()
