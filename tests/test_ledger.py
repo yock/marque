@@ -1,4 +1,5 @@
 """ledger.py's CLI against a temporary state dir."""
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 LEDGER = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "ledger.py"
+STUBS = Path(__file__).resolve().parent / "stubs"
 
 
 def run(*args, state_dir, env=None):
@@ -234,6 +236,54 @@ class ListAndRecoverTest(unittest.TestCase):
             self.assertEqual((state_dir / "ledger.tsv").read_bytes(), before)
             # The temp file is left behind, as a real kill would leave it.
             self.assertNotEqual(list(state_dir.glob(".ledger.*.tmp")), [])
+
+
+def stub_env(tmp):
+    """The env that puts the stub `beam` first on PATH, ahead of the real one."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STUB_BEAM")}
+    env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
+    env["STUB_BEAM_STATE"] = str(Path(tmp) / "stub")
+    return env
+
+
+def dead_pid():
+    """A pid that has already finished: a run that is no longer live."""
+    process = subprocess.Popen(["true"])
+    process.wait()
+    return process.pid
+
+
+class RecoverSweepTest(unittest.TestCase):
+    def test_recover_runs_the_sweep_after_the_in_flight_rows(self):
+        # Crash recovery sweeps before it visits the rows' worktrees: the
+        # dead run's box is stopped, and its line follows the five rows.
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            (state_dir / "ledger.tsv").write_text(ALL_STATE_ROWS)
+            containers = state_dir / "beam" / "containers"
+            containers.mkdir(parents=True)
+            (containers / "box-9").write_text(
+                "pid: %d\nhost: %s\nrun: R1\nrecord: /tmp/one.record\n"
+                "created: 2026-01-01T00:00:00Z\nworst: 70.0000\n"
+                % (dead_pid(), os.uname().nodename)
+            )
+            (Path(tmp) / "stub").mkdir()
+            (Path(tmp) / "stub" / "containers.json").write_text(
+                '{"box-9": "2026-01-01T00:00:00Z"}'
+            )
+
+            r = run("recover", state_dir=state_dir, env=stub_env(tmp))
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            lines = r.stdout.splitlines()
+            # Five in-flight states; then the sweep's one line.
+            self.assertEqual(len(lines), 6, r.stdout)
+            self.assertTrue(lines[0].startswith("4\trunning\t"), lines)
+            self.assertTrue(lines[4].startswith("8\tlanding\t"), lines)
+            self.assertEqual(lines[5], "stopped box-9: confirmed")
+            self.assertEqual(
+                json.loads((Path(tmp) / "stub" / "containers.json").read_text()), {}
+            )
 
 
 if __name__ == "__main__":

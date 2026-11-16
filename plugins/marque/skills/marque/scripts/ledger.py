@@ -8,6 +8,7 @@ schema.
 """
 import argparse
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -129,7 +130,13 @@ def main():
     p = sub.add_parser("list", help="print every row, optionally only one state's")
     p.add_argument("--state")
 
-    sub.add_parser("recover", help="print the in-flight rows crash recovery must visit")
+    sub.add_parser(
+        "recover",
+        help=(
+            "print the in-flight rows crash recovery must visit, then sweep "
+            "orphaned Beam sandboxes"
+        ),
+    )
 
     a = ap.parse_args()
     rows = read_rows(a.state_dir)
@@ -175,7 +182,21 @@ def main():
         for row in rows:
             if row[1] in IN_FLIGHT:
                 print("\t".join(row))
+        # The rows first, in this process's buffered stdout, then the sweep as
+        # its own process: an orphaned sandbox is torn down before recovery
+        # visits any worktree, and an unconfirmed stop is the exit status.
+        sys.stdout.flush()
+        sweep = subprocess.run(
+            [
+                sys.executable,
+                str(Path(__file__).resolve().parent / "suite.py"),
+                "sweep",
+                "--state-dir",
+                a.state_dir,
+            ]
+        )
+        return sweep.returncode
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
