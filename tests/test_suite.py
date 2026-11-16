@@ -473,6 +473,53 @@ class BeamSignalTest(unittest.TestCase):
                     self.assertEqual(values["teardown"], "confirmed")
 
 
+class BeamCostTest(BeamCase):
+    def test_cost_is_settled_from_the_containers_started_at(self):
+        # The stub ages the box 600 s = 10 wall-minutes; at 1.0 per minute the
+        # run costs 10.0000 plus the couple of seconds the run takes. The
+        # 4200 s worst case would be 70.0000.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        cost = float(record_values(self.record)["cost"])
+        self.assertGreaterEqual(cost, 10.0000)
+        self.assertLessEqual(cost, 11.0000)
+        self.assert_no_violations()
+
+    def test_an_unconfirmed_teardown_charges_the_whole_ttl_and_keeps_the_id(self):
+        # 1.0 per minute for the full 4200 s TTL: 70.0000. The ID file stays
+        # for the sweep to find.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STOP_IGNORED"] = "1"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        values = record_values(self.record)
+        self.assertEqual(values["teardown"], "unconfirmed")
+        self.assertEqual(values["cost"], "70.0000")
+        self.assertEqual(
+            [p.name for p in (self.state / "beam" / "containers").iterdir()],
+            ["box-1"],
+        )
+        self.assert_no_violations()
+
+
+class BeamMaxWallTest(BeamCase):
+    def test_max_wall_overrides_the_blocks_max_wall_time(self):
+        # --max-wall 60 plus the 600 s margin gives a 660 s TTL, and 60 s for
+        # every exec timeout.
+        r = self.run_it("--max-wall", "60")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        creates = [call for call in calls if call.startswith("container create")]
+        self.assertIn("--ttl 660", creates[0])
+        for call in calls:
+            if call.startswith("container exec"):
+                with self.subTest(call=call):
+                    self.assertIn("--timeout 60", call)
+        self.assert_no_violations()
+
+
 class LocalBlockCommandsTest(unittest.TestCase):
     def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
         # POSIX: `true` exits 0 and `false` exits 1. A later failure must not
