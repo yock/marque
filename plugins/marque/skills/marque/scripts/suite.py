@@ -426,7 +426,7 @@ def run_beam(record, worktree, tree, commit, block, max_wall, rate, state, text)
                 "started: %s" % now(),
             ],
         )
-    with open(str(log), "a") as logf:
+    with open(str(log), "w") as logf:
         previous = install_handlers()
         try:
             image_id = ensure_image(

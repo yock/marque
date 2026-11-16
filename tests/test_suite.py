@@ -411,6 +411,18 @@ class BeamImageCacheTest(BeamCase):
         self.assert_no_violations()
 
 
+class BeamLogTest(BeamCase):
+    def test_a_second_run_at_the_same_record_path_truncates_the_log(self):
+        # #41 fixed the log to be truncated at the start of a run; the stub
+        # prints one `stub ran:` line per run command, so a reused path must
+        # hold exactly one.
+        for _ in range(2):
+            r = self.run_it()
+            self.assertEqual(r.returncode, 0, r.stderr)
+        log = Path(str(self.record.with_suffix(".log")))
+        self.assertEqual(log.read_text().count("stub ran:"), 1)
+
+
 class BeamFailureTest(BeamCase):
     def test_a_failing_command_is_a_failed_run_that_still_tears_down(self):
         # `exit 7` from the stub stands for a failing build: the remote status
