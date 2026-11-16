@@ -12,7 +12,9 @@ STUB_BEAM_ID_DIR        suite.py's container-state dir. `container cp` checks
                         when it does not, which proves the ID was recorded
                         before the upload.
 STUB_BEAM_EXEC_SLEEP    seconds a non-extraction `container exec` sleeps
-                        (default 0), so a test can signal while it runs.
+                        (default 0), so a test can signal while it runs. It
+                        ends early, with 143, when its box is stopped: a
+                        stopped box cannot run a command.
 STUB_BEAM_EXEC_STATUS   the status a non-extraction `container exec` exits
                         with (default 0).
 STUB_BEAM_FAIL_MATCH    when set, only an exec whose command text contains it
@@ -195,7 +197,14 @@ def main(argv):
         text = " ".join(command)
         if "tar -xf" in text:
             return 0
-        time.sleep(float(os.environ.get("STUB_BEAM_EXEC_SLEEP", "0")))
+        container_id = argv[argv.index("--") - 1] if "--" in argv else ""
+        deadline = time.time() + float(os.environ.get("STUB_BEAM_EXEC_SLEEP", "0"))
+        while time.time() < deadline:
+            # A stopped box cannot run a command: the provider ends the exec.
+            if container_id and container_id not in load("containers.json", {}):
+                print("stub beam: %s was stopped" % container_id, file=sys.stderr)
+                return 143
+            time.sleep(0.1)
         print("stub ran: %s" % text)
         return exec_status(text)
 
