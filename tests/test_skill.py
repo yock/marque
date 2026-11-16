@@ -37,6 +37,7 @@ REFERENCES = {
     "operations.md",
     "landing.md",
     "asking.md",
+    "runners.md",
 }
 REFERENCE_PATH = re.compile(r"reference/[a-z-]+\.md")
 
@@ -70,7 +71,7 @@ class TitleTest(unittest.TestCase):
 
 
 class ReferenceIndexTest(unittest.TestCase):
-    def test_the_skill_points_at_exactly_its_six_references(self):
+    def test_the_skill_points_at_exactly_its_references(self):
         mentioned = {Path(p).name for p in REFERENCE_PATH.findall(SKILL.read_text())}
         self.assertEqual(mentioned, REFERENCES)
 
@@ -387,6 +388,46 @@ class OperationsReferenceTest(unittest.TestCase):
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, text)
+
+
+# #44: the Beam runner's contract, its `## Runner` block and the CLI allowlist.
+class RunnersReferenceTest(unittest.TestCase):
+    def runners_md(self):
+        return (REFERENCE_DIR / "runners.md").read_text()
+
+    def test_the_beam_runner_reference_names_the_contract_the_block_and_the_limits(self):
+        text = self.runners_md()
+        for marker in (
+            "--ttl",
+            "--timeout",
+            "started_at",
+            "container list",
+            "## Runner",
+            "max wall time",
+            "600",
+            "beam status",
+            "no unlimited TTL",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_beam_runner_reference_names_every_allowed_command(self):
+        text = self.runners_md()
+        for command in (
+            "image build",
+            "image get",
+            "container create",
+            "container cp",
+            "container exec",
+            "container stop",
+            "container list",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, text)
+
+    def test_runner_configuration_is_an_override_not_an_extension(self):
+        text = (REFERENCE_DIR / "extensions.md").read_text()
+        self.assertIn("not an extension", text)
 
 
 # #42: green is bound to the tree (ADR 0001). The prose names the record flag and

@@ -64,4 +64,5 @@ On the core events — target branch red, three failures in a row, a paid-comput
 - `reference/harnesses.md` — the verbs (dispatch a background subagent, resume the same session, push a notification, run a background command that wakes you) per harness.
 - `reference/operations.md` — retries, stalls, integration details, crash recovery, notifications, context management.
 - `reference/landing.md` — the guarded landing, direct and pr modes.
+- `reference/runners.md` — the Beam runner: its contract, the `## Runner` block, the allowlist and how cost is settled.
 - `reference/asking.md` — questions on the ticket and the answer signal.
