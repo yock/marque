@@ -936,6 +936,27 @@ def run_is_live(fields):
     return True
 
 
+def settle_worst_cases(state, runs):
+    """Settle each crashed run's reservation at its worst case, once each.
+
+    A run that already settled priced its own unconfirmed boxes itself, so
+    only a reservation with no settle row is the sweep's to close.
+    """
+    reserved = {}
+    settled = set()
+    for row in ledger_rows(state):
+        if row["kind"] == "reserve":
+            reserved[row["run"]] = row["amount"]
+        elif row["kind"] == "settle":
+            settled.add(row["run"])
+    for run_id in sorted(runs):
+        if run_id not in reserved or run_id in settled:
+            continue
+        amount = reserved[run_id]
+        settle(state, run_id, amount, "sweep: worst case")
+        print("settled %s at worst case %.4f" % (run_id, amount))
+
+
 def sweep(a):
     """Tear down recorded boxes whose run is no longer live, then settle them."""
     state = Path(a.state_dir)
@@ -958,6 +979,7 @@ def sweep(a):
         else []
     )
     unconfirmed = False
+    crashed = set()
     for name in recorded:
         fields = id_file_fields(containers / name)
         if run_is_live(fields):
@@ -970,6 +992,8 @@ def sweep(a):
                 )
             )
             continue
+        if fields.get("run"):
+            crashed.add(fields["run"])
         if name in live:
             confirmed, _ = stop_container(Discard(), name)
             if confirmed:
@@ -981,6 +1005,7 @@ def sweep(a):
         else:
             (containers / name).unlink(missing_ok=True)
             print("gone %s" % name)
+    settle_worst_cases(state, crashed)
     for container_id in live:
         if container_id not in recorded:
             print("unrecorded %s: left alone" % container_id)

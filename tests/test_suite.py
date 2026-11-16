@@ -1049,6 +1049,47 @@ class SweepTest(unittest.TestCase):
         self.assertIn("sweep: cannot list containers", r.stderr)
         self.assertTrue((self.state / "beam" / "containers" / "box-9").exists())
 
+    def test_the_sweep_settles_a_crashed_runs_reservation_at_its_worst_case(self):
+        # R1 reserved 70.0000 — 1.0 per minute for the 4200 s TTL — and never
+        # settled: its box is dead, so the worst case is what it spent.
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        seed_ledger(self.state, ("reserve", "R1", "70.0000"))
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("settled R1 at worst case 70.0000\n", r.stdout)
+        self.assertIn(("settle", "R1", 70.0), spend_rows(self.state))
+
+    def test_a_run_that_already_settled_is_not_settled_again(self):
+        # Its own teardown already priced the unconfirmed box at worst case;
+        # the sweep leaves that figure alone.
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        seed_ledger(
+            self.state, ("reserve", "R1", "70.0000"), ("settle", "R1", "12.0000")
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("settled R1", r.stdout)
+        self.assertEqual(
+            [row for row in spend_rows(self.state) if row[1] == "R1"],
+            [("reserve", "R1", 70.0), ("settle", "R1", 12.0)],
+        )
+
 
 class BeamTeardownSignalTest(unittest.TestCase):
     def test_a_signal_during_teardown_still_finishes_it_and_writes_the_record(self):
