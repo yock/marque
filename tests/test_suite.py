@@ -816,6 +816,33 @@ class BeamCostTest(BeamCase):
         )
         self.assert_no_violations()
 
+    def test_the_id_file_names_the_run_its_host_and_its_worst_case(self):
+        # A kept ID file tells the sweep whose run it belongs to and what the
+        # box costs at worst: the ledger's own run id, this machine's host
+        # name, and 1.0 per minute for the 4200 s TTL, 70.0000.
+        self.warm_image()
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STOP_IGNORED"] = "1"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run_id = [
+            run
+            for kind, run, _ in spend_rows(self.state)
+            if kind == "reserve" and not run.endswith(".build")
+        ][-1]
+        values = dict(
+            line.split(": ", 1)
+            for line in (self.state / "beam" / "containers" / "box-1")
+            .read_text()
+            .splitlines()
+        )
+        self.assertEqual(values["run"], run_id)
+        # The node name from uname, not the call the script makes: the file
+        # names the machine this run is on.
+        self.assertEqual(values["host"], os.uname().nodename)
+        self.assertEqual(values["worst"], "70.0000")
+        self.assert_no_violations()
+
 
 class BeamMaxWallTest(BeamCase):
     def test_max_wall_overrides_the_blocks_max_wall_time(self):

@@ -34,6 +34,7 @@ import queue
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -270,8 +271,13 @@ class Discard:
         pass
 
 
-def write_container(state, container_id, record):
-    """Record the container the moment it exists, so an orphan can be found."""
+def write_container(state, container_id, record, run_id, worst):
+    """Record the container the moment it exists, so an orphan can be found.
+
+    The sweep reads these back: the run tells it what to settle, the host and
+    pid tell it whether that run is still alive, and `worst` is what the box
+    costs at its worst if the teardown could not be confirmed.
+    """
     directory = Path(state) / "beam" / "containers"
     directory.mkdir(parents=True, exist_ok=True)
     with open(str(directory / container_id), "w") as f:
@@ -279,8 +285,11 @@ def write_container(state, container_id, record):
             f,
             [
                 "pid: %d" % os.getpid(),
+                "host: %s" % socket.gethostname(),
+                "run: %s" % run_id,
                 "record: %s" % Path(record).resolve(),
                 "created: %s" % now(),
+                "worst: %.4f" % worst,
             ],
         )
 
@@ -648,6 +657,7 @@ def run_beam(
     record.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     ttl = max_wall + MARGIN
+    worst = rate * ttl / 60
     parts = len(commands)
 
     # Shared by the main thread and the workers, all of it under `registry`.
@@ -736,7 +746,7 @@ def run_beam(
                         raise BeamError(status_of(r.returncode) or 1)
                     container_id = data["container_id"]
                     boxes_by_part[part] = container_id
-                    write_container(state, container_id, record)
+                    write_container(state, container_id, record, run_id, worst)
                     with open(str(record), "a") as f:
                         write_lines(f, ["container.%d: %s" % (part, container_id)])
                 upload(log, worktree, tree, container_id, max_wall)
