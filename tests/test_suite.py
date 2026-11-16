@@ -296,6 +296,97 @@ class BeamRefusalTest(unittest.TestCase):
                     self.assertEqual(beam_calls(tmp), [])
 
 
+class BeamCase(unittest.TestCase):
+    """A Beam repo, its state dir and the stub's call log."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = self._tmp.name
+        self.repo, self.record = make_beam_repo(self.tmp)
+        self.state = Path(self.tmp) / "state"
+
+    def run_it(self, *args, **kwargs):
+        return beam_ok(self.repo, self.record, self.tmp, *args, **kwargs)
+
+    def calls(self):
+        return beam_calls(self.tmp)
+
+    def assert_no_violations(self):
+        # The stub logs a VIOLATION for anything outside the allowlist, for a
+        # create without --ttl, for an exec without --timeout and for an upload
+        # of a container the state dir does not hold.
+        violations = [line for line in self.calls() if "VIOLATION" in line]
+        self.assertEqual(violations, [], self.calls())
+
+
+def live_containers(tmp):
+    path = Path(tmp) / "stub" / "containers.json"
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+class BeamSandboxTest(BeamCase):
+    def test_every_create_passes_a_ttl_of_max_wall_plus_600_seconds(self):
+        # The block's 3600 s plus the agreed 600 s margin: 4200.
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        creates = [call for call in self.calls() if call.startswith("container create")]
+        self.assertEqual(len(creates), 1, self.calls())
+        self.assertIn("--ttl 4200", creates[0])
+        self.assert_no_violations()
+
+    def test_every_exec_carries_the_max_wall_time_as_its_timeout(self):
+        # The CLI's default is 300 s, which would kill a suite; every exec,
+        # the extraction included, names the block's 3600 s.
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        execs = [call for call in self.calls() if call.startswith("container exec")]
+        self.assertGreaterEqual(len(execs), 2, self.calls())
+        for call in execs:
+            with self.subTest(call=call):
+                self.assertIn("--timeout 3600", call)
+        self.assert_no_violations()
+
+    def test_the_container_is_recorded_in_the_state_dir_before_the_upload(self):
+        # The stub fails the upload when `<state>/beam/containers/<id>` is
+        # missing, so a clean run is the proof; a confirmed stop clears it.
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assert_no_violations()
+        self.assertEqual(list((self.state / "beam" / "containers").iterdir()), [])
+
+    def test_a_normal_exit_stops_the_box_and_confirms_it_gone(self):
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        calls = self.calls()
+        stop = calls.index("container stop box-1")
+        self.assertTrue(
+            any(call.startswith("container list") for call in calls[stop + 1:]),
+            calls,
+        )
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assertIn("teardown: confirmed", record_lines(self.record))
+        self.assert_no_violations()
+
+    def test_the_beam_record_names_the_runner_the_container_the_cost_and_teardown(self):
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = record_lines(self.record)
+        self.assertEqual(
+            [line.split(": ", 1)[0] for line in lines],
+            [
+                "tree", "commit", "runner", "started", "container",
+                "ended", "exit.1", "verdict", "cost", "teardown", "log",
+            ],
+        )
+        values = record_values(self.record)
+        self.assertEqual(values["runner"], "beam")
+        self.assertEqual(values["container"], "box-1")
+        self.assertRegex(values["cost"], r"^\d+\.\d{4}$")
+        self.assertEqual(values["teardown"], "confirmed")
+        self.assert_no_violations()
+
+
 class LocalBlockCommandsTest(unittest.TestCase):
     def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
         # POSIX: `true` exits 0 and `false` exits 1. A later failure must not
