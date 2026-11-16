@@ -261,6 +261,41 @@ def write_container(state, container_id, record):
         )
 
 
+class Slots:
+    """The account's limit on live sandboxes, held as locked files.
+
+    One slot is one live box, from just before `container create` until its
+    teardown ends. A run without a free slot waits; it is never refused. A
+    process that dies releases its locks, so nothing has to reclaim them.
+    """
+
+    def __init__(self, directory, count):
+        self.directory = Path(directory)
+        self.count = count
+
+    def take(self, stop):
+        """Hold a free slot and return it, or None if `stop` was set first."""
+        self.directory.mkdir(parents=True, exist_ok=True)
+        while not stop.is_set():
+            for index in range(self.count):
+                handle = open(str(self.directory / str(index)), "a+")
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    handle.close()
+                    continue
+                return handle
+            stop.wait(1)
+        return None
+
+    @staticmethod
+    def release(handle):
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
 def upload(log, worktree, tree, container_id, max_wall):
     """Upload the exact tree and extract it at /work in the sandbox."""
     scratch = Path(tempfile.mkdtemp(prefix="marque-beam-"))
@@ -449,14 +484,15 @@ def run_local_commands(record, cwd, tree, commit, commands):
 
 
 def run_beam(
-    record, worktree, tree, commit, block, max_wall, rate, state, commands, boxes
+    record, worktree, tree, commit, block, max_wall, rate, state, commands, boxes, concurrency
 ):
     """The run's commands, each on its own sandbox, torn down on every exit path.
 
     One part per command, numbered in command order. A pool of workers pulls
     parts, and each worker owns its box from `container create` to the
     teardown: the main thread only steps in on a signal. `boxes` caps how many
-    parts are live at once; the rest start as earlier ones finish.
+    parts are live at once; the rest start as earlier ones finish, and each box
+    holds one of the account's `concurrency` slots while it is live.
     """
     record = Path(record)
     log_path = log_of(record)
@@ -474,6 +510,7 @@ def run_beam(
     started = {}  # part -> started_at, once read
     torn_down = {}  # part -> (confirmed, stop time)
     claimed = set()  # parts whose teardown a thread has taken on
+    slots = Slots(state / "beam" / "slots", concurrency)
 
     def set_status(part, status):
         """Store a part's status, unless the main thread took its box away."""
@@ -520,8 +557,11 @@ def run_beam(
                 torn_down[part] = (confirmed, stopped_at)
 
     def run_part(part):
-        """One part: a sandbox, the upload, the command, the teardown."""
+        """One part: a slot, a sandbox, the upload, the command, the teardown."""
         text = commands[part - 1]
+        slot = slots.take(stop)
+        if slot is None:
+            return
         log.for_part(part)
         try:
             try:
@@ -574,6 +614,7 @@ def run_beam(
                 set_status(part, 1)
         finally:
             tear_down(part)
+            slots.release(slot)
             log.for_part(None)
 
     with open(str(record), "w") as f:
@@ -760,7 +801,19 @@ def run(a):
         a.state_dir,
         commands,
         boxes,
+        a.concurrency,
     )
+
+
+def positive_int(text):
+    """An argparse type for a count that must be at least 1."""
+    try:
+        value = int(text)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise argparse.ArgumentTypeError("expected a positive integer, got %r" % text)
+    return value
 
 
 def parse_args(argv):
@@ -795,6 +848,16 @@ def parse_args(argv):
         type=float,
         metavar="PER_MINUTE",
         help="currency per wall-minute; required for beam",
+    )
+    p.add_argument(
+        "--concurrency",
+        type=positive_int,
+        default=1,
+        metavar="N",
+        help=(
+            "the account's limit on live sandboxes across runs sharing the "
+            "state dir; a run without a free slot waits (default: 1)"
+        ),
     )
     p.add_argument(
         "--max-wall",

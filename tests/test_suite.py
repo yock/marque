@@ -423,10 +423,11 @@ class BeamParallelPartsTest(BeamCase):
 
     def test_two_commands_run_on_two_sandboxes_at_once_and_both_pass(self):
         # The stub sleeps 2 s in every command exec, so the run can only end
-        # in that time if both boxes are live together (boxes: 2).
+        # in that time if both boxes are live together (boxes: 2, and two
+        # runner slots).
         env = beam_env(self.tmp)
         env["STUB_BEAM_EXEC_SLEEP"] = "2"
-        r = self.run_it(env=env)
+        r = self.run_it("--concurrency", "2", env=env)
         self.assertEqual(r.returncode, 0, r.stderr)
         calls = self.calls()
         creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
@@ -708,6 +709,123 @@ class BeamTeardownSignalTest(unittest.TestCase):
                 return
             time.sleep(0.1)
         raise AssertionError(message)
+
+
+class BeamSlotTest(unittest.TestCase):
+    """Runner concurrency: the account's live-sandbox limit, held per box."""
+
+    def start(self, repo, record, state, env):
+        return subprocess.Popen(
+            [
+                sys.executable, str(SUITE), "run",
+                "--record", str(record),
+                "--runner", "beam",
+                "--state-dir", str(state),
+                "--rate", "1.0",
+                "--concurrency", "1",
+            ],
+            cwd=str(repo),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+
+    def test_a_run_waits_for_a_free_slot_and_starts_when_one_frees_up(self):
+        # Two runs share one state dir and --concurrency 1: the second has no
+        # slot, so it waits for the first box to be torn down and then runs.
+        # It is never refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            repos = []
+            for name in ("a", "b"):
+                (Path(tmp) / name).mkdir()
+                repos.append(make_beam_repo(Path(tmp) / name))
+            state = Path(tmp) / "state"
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "3"
+            procs = [
+                self.start(repo, record, state, env) for repo, record in repos
+            ]
+            try:
+                for p in procs:
+                    p.communicate(timeout=120)
+            finally:
+                for p in procs:
+                    if p.poll() is None:
+                        p.kill()
+                        p.communicate()
+            self.assertEqual([p.returncode for p in procs], [0, 0])
+            calls = beam_calls(tmp)
+            creates = [i for i, call in enumerate(calls) if call.startswith("container create")]
+            stops = [i for i, call in enumerate(calls) if call.startswith("container stop")]
+            self.assertEqual(len(creates), 2, calls)
+            self.assertEqual(len(stops), 2, calls)
+            self.assertLess(creates[0], stops[0], calls)
+            self.assertLess(stops[0], creates[1], calls)
+
+    def test_a_killed_runs_slot_frees_itself(self):
+        # A dead process's flock is released by the kernel, so the next run
+        # takes the slot at once instead of waiting for the dead box's TTL.
+        # The box it left behind is #48's sweep, not this test's business.
+        with tempfile.TemporaryDirectory() as tmp:
+            repos = []
+            for name in ("a", "b"):
+                (Path(tmp) / name).mkdir()
+                repos.append(make_beam_repo(Path(tmp) / name))
+            state = Path(tmp) / "state"
+            slow = beam_env(tmp)
+            slow["STUB_BEAM_EXEC_SLEEP"] = "30"
+            first = subprocess.Popen(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(repos[0][1]),
+                    "--runner", "beam",
+                    "--state-dir", str(state),
+                    "--rate", "1.0",
+                    "--concurrency", "1",
+                ],
+                cwd=str(repos[0][0]),
+                env=slow,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            try:
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    if any(
+                        call.startswith("container exec") and "make test" in call
+                        for call in beam_calls(tmp)
+                    ):
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.fail("the first run never reached its command")
+                first.kill()
+                first.wait(timeout=20)
+            finally:
+                if first.poll() is None:
+                    first.kill()
+                    first.wait()
+            quick = beam_env(tmp)
+            quick["STUB_BEAM_EXEC_SLEEP"] = "0"
+            began = time.time()
+            second = subprocess.run(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(repos[1][1]),
+                    "--runner", "beam",
+                    "--state-dir", str(state),
+                    "--rate", "1.0",
+                    "--concurrency", "1",
+                ],
+                cwd=str(repos[1][0]),
+                env=quick,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(second.returncode, 0, second.stderr)
+            self.assertLess(time.time() - began, 15)
 
 
 class LocalBlockCommandsTest(unittest.TestCase):
