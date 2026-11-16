@@ -26,7 +26,13 @@ A session silent for over **the stall hour** (default 1 hour, overridable only i
 
 ## Shared machine
 
-Implementers and integration runs share one machine. If a project's full suite is heavy, suites take turns. The project's `AGENTS.md` says how, and the orchestrator's integration runs follow the same rule. The commission asks about it (→ `reference/commission.md` step 7).
+Implementers and integration runs share one machine. If a project's full suite is heavy, suites take turns. The project's `AGENTS.md` says how, and the orchestrator's integration runs follow the same rule. The commission asks about it (→ `reference/commission.md` step 7). A paid run that the cap refuses falls back to the local runner under the same turn-taking rule.
+
+## Runners and paid compute
+
+Every paid run — an implementer's run, an integration run, an image build — reserves its worst case in `<state dir>/spend.tsv` before it starts. The run is refused when the spend so far plus that reservation would pass the commission's cap. A refused run falls back to the local runner, or exits 3 when the project's `## Runner` block says `local fallback: no`: there is nowhere else to run it.
+
+At teardown the reservation is settled from the box's `started_at` and the confirmed stop, and a build from the wall time it took. A reservation nobody settled — a crashed run's — counts at its worst case until the sweep settles it. The ledger is append-only under a file lock, one row per reservation and settlement. Details → `reference/runners.md`.
 
 ## Never kill by name
 

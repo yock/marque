@@ -443,6 +443,43 @@ class RunnersReferenceTest(unittest.TestCase):
         self.assertIn("not an extension", text)
 
 
+# #45: the paid-compute cap as a mechanism — reserve, refuse, settle, fall back.
+class PaidComputeProseTest(unittest.TestCase):
+    def test_the_commission_names_the_paid_compute_terms(self):
+        text = (REFERENCE_DIR / "commission.md").read_text()
+        for marker in (
+            "runner concurrency",
+            "per wall-minute",
+            "--cap",
+            "local fallback: no",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_operations_name_the_ledger_and_the_fallback(self):
+        text = (REFERENCE_DIR / "operations.md").read_text()
+        for marker in (
+            "## Runners and paid compute",
+            "spend.tsv",
+            "falls back to the local runner",
+            "exits 3",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_skill_names_the_terms_and_the_once_per_commission_notification(self):
+        text = SKILL.read_text()
+        for marker in ("once per commission", "runner concurrency"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+    def test_the_runner_reference_names_the_cap_and_the_ledger(self):
+        text = (REFERENCE_DIR / "runners.md").read_text()
+        for marker in ("--cap", "spend.tsv", "refused:", "local fallback"):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
+
 # #42: green is bound to the tree (ADR 0001). The prose names the record flag and
 # the seventh safeguard, and offers no second way to be green.
 class SuiteRecordWordingTest(unittest.TestCase):

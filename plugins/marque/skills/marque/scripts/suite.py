@@ -15,15 +15,17 @@ log itself.
 `--runner beam` runs the command — or each of the block's commands, one
 sandbox each — on Beam instead, with Marque owning the whole lifecycle:
 build the image, create the containers, upload the exact tree, run, tear
-down, account. It needs `--state-dir` and `--rate`, and takes
+down, account. It needs `--state-dir`, `--rate` and `--cap`, and takes
 `--concurrency`, the account's limit on live sandboxes: a run without a free
-slot waits.
+slot waits. Every paid run reserves its worst case against `--cap` first and
+settles it at teardown.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
-git worktree, no command, a missing Beam term), nothing written; 3 reserved for
-paid compute, refused with no fallback possible.
+git worktree, no command, a missing Beam term), nothing written; 3 paid
+compute refused when the block says `local fallback: no`.
 """
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -214,21 +216,30 @@ def json_of(result):
         return None
 
 
-def ensure_image(log, dockerfile, worktree, state):
-    """Build the image once per Dockerfile hash.
+def cached_image(log, dockerfile, state):
+    """The cached image ID while the cache file and `image get` still name it.
 
-    `<state>/beam/images/<sha256>` caches the image ID. A cached ID is reused
-    only while `beam image get` says it still exists.
+    None means the image has to be built. `image get` is free and allowlisted,
+    so a run can ask before it reserves anything.
     """
     digest = hashlib.sha256(Path(dockerfile).read_bytes()).hexdigest()
     cache = Path(state) / "beam" / "images" / digest
-    if cache.exists():
-        image_id = cache.read_text(encoding="utf-8").strip()
-        if image_id:
-            r = beam(log, "image", "get", image_id)
-            data = json_of(r)
-            if r.returncode == 0 and data and data.get("exists"):
-                return image_id
+    if not cache.exists():
+        return None
+    image_id = cache.read_text(encoding="utf-8").strip()
+    if not image_id:
+        return None
+    r = beam(log, "image", "get", image_id)
+    data = json_of(r)
+    if r.returncode == 0 and data and data.get("exists"):
+        return image_id
+    return None
+
+
+def build_image(log, dockerfile, worktree, state):
+    """Build the image from the Dockerfile and cache its ID by the file's hash."""
+    digest = hashlib.sha256(Path(dockerfile).read_bytes()).hexdigest()
+    cache = Path(state) / "beam" / "images" / digest
     r = beam(
         log,
         "image",
@@ -249,6 +260,16 @@ def ensure_image(log, dockerfile, worktree, state):
     return image_id
 
 
+class Discard:
+    """A log that goes nowhere: the pre-check runs before the record or log exist."""
+
+    def write(self, chunk):
+        pass
+
+    def flush(self):
+        pass
+
+
 def write_container(state, container_id, record):
     """Record the container the moment it exists, so an orphan can be found."""
     directory = Path(state) / "beam" / "containers"
@@ -262,6 +283,116 @@ def write_container(state, container_id, record):
                 "created: %s" % now(),
             ],
         )
+
+
+# The commission's ledger: one row per paid run's reservation and settlement.
+# It is append-only under a file lock, so runs sharing a state dir share the
+# cap without trusting each other's read-modify-write.
+LEDGER_HEADER = "time\tkind\trun\tamount\tnote"
+
+
+def new_run_id():
+    """A run id unique across processes: the time, this pid and some randomness."""
+    return "%s-%d-%s" % (
+        datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+        os.getpid(),
+        os.urandom(4).hex(),
+    )
+
+
+@contextlib.contextmanager
+def ledger_lock(state):
+    """The ledger's exclusive lock, blocking and held across a read and its append."""
+    state = Path(state)
+    state.mkdir(parents=True, exist_ok=True)
+    handle = open(str(state / "spend.lock"), "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def ledger_rows(state):
+    """The ledger's rows as dicts; a malformed line is skipped, never fatal."""
+    try:
+        text = (Path(state) / "spend.tsv").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    rows = []
+    for line in text.splitlines()[1:]:
+        fields = line.split("\t")
+        if len(fields) != 5:
+            continue
+        try:
+            amount = float(fields[3])
+        except ValueError:
+            continue
+        rows.append(
+            {
+                "time": fields[0],
+                "kind": fields[1],
+                "run": fields[2],
+                "amount": amount,
+                "note": fields[4],
+            }
+        )
+    return rows
+
+
+def spend_so_far(rows):
+    """Each run's last settle if it has one, else its reserve, summed."""
+    reserved = {}
+    settled = {}
+    for row in rows:
+        if row["kind"] == "reserve":
+            reserved[row["run"]] = row["amount"]
+        elif row["kind"] == "settle":
+            settled[row["run"]] = row["amount"]
+    total = 0.0
+    for run, amount in reserved.items():
+        total += settled.get(run, amount)
+    for run, amount in settled.items():
+        if run not in reserved:
+            total += amount
+    return total
+
+
+def append_ledger(state, kind, entries):
+    """Append one row per (run id, amount, note); caller holds the lock."""
+    path = Path(state) / "spend.tsv"
+    empty = not path.exists() or path.stat().st_size == 0
+    stamp = now()
+    with open(str(path), "a", encoding="utf-8") as f:
+        if empty:
+            f.write(LEDGER_HEADER + "\n")
+        for run_id, amount, note in entries:
+            note = note.replace("\t", " ").replace("\n", " ")
+            f.write("%s\t%s\t%s\t%.4f\t%s\n" % (stamp, kind, run_id, amount, note))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def reserve(state, entries, cap):
+    """Reserve each entry's worst case, or return why the cap refuses them."""
+    with ledger_lock(state):
+        spent = spend_so_far(ledger_rows(state))
+        wanted = sum(amount for _, amount, _ in entries)
+        if spent + wanted > cap:
+            return "cap: spend %.4f + reservation %.4f > cap %.4f" % (
+                spent,
+                wanted,
+                cap,
+            )
+        append_ledger(state, "reserve", entries)
+    return None
+
+
+def settle(state, run_id, amount, note):
+    """Replace a run's reservation with what it actually spent."""
+    with ledger_lock(state):
+        append_ledger(state, "settle", [(run_id, amount, note)])
 
 
 class Slots:
@@ -405,7 +536,7 @@ def restore_handlers(previous):
             pass
 
 
-def run_local(record, cwd, tree, commit, command):
+def run_local(record, cwd, tree, commit, command, refused=None):
     """One argv command, run in the worktree; the record #41 wrote."""
     log = log_of(record)
     record.parent.mkdir(parents=True, exist_ok=True)
@@ -416,8 +547,9 @@ def run_local(record, cwd, tree, commit, command):
                 "tree: %s" % tree,
                 "commit: %s" % commit,
                 "runner: local",
-                "started: %s" % now(),
-            ],
+            ]
+            + (["refused: %s" % refused] if refused else [])
+            + ["started: %s" % now()],
         )
     with open(str(log), "w") as out:
         try:
@@ -444,7 +576,7 @@ def run_local(record, cwd, tree, commit, command):
     return 0 if verdict == "pass" else 1
 
 
-def run_local_commands(record, cwd, tree, commit, commands):
+def run_local_commands(record, cwd, tree, commit, commands, refused=None):
     """The `## Runner` block's commands, each with `sh -c`, every one running."""
     log = log_of(record)
     record.parent.mkdir(parents=True, exist_ok=True)
@@ -455,8 +587,9 @@ def run_local_commands(record, cwd, tree, commit, commands):
                 "tree: %s" % tree,
                 "commit: %s" % commit,
                 "runner: local",
-                "started: %s" % now(),
-            ],
+            ]
+            + (["refused: %s" % refused] if refused else [])
+            + ["started: %s" % now()],
         )
     statuses = []
     with open(str(log), "w") as out:
@@ -498,6 +631,8 @@ def run_beam(
     commands,
     boxes,
     concurrency,
+    run_id,
+    image_id,
 ):
     """The run's commands, each on its own sandbox, torn down on every exit path.
 
@@ -643,13 +778,21 @@ def run_beam(
     NOTED.clear()
     signum = None
     workers = []
+    build_cost = 0.0
     with open(str(log_path), "w") as handle:
         log = RunLog(handle)
         previous = install_handlers(interrupted)
         try:
-            image_id = ensure_image(
-                log, Path(worktree) / block["dockerfile"], worktree, state
-            )
+            if image_id is None:
+                began = time.monotonic()
+                try:
+                    image_id = build_image(
+                        log, Path(worktree) / block["dockerfile"], worktree, state
+                    )
+                finally:
+                    # A failed build's time was spent too.
+                    build_cost = rate * (time.monotonic() - began) / 60
+                    settle(state, run_id + ".build", build_cost, "build")
             remaining = queue.Queue()
             for part in range(1, parts + 1):
                 remaining.put(part)
@@ -713,6 +856,10 @@ def run_beam(
                     cost += rate * (stopped_at - started_at).total_seconds() / 60
                 else:
                     cost += rate * ttl / 60
+            # The run's settlement is the boxes' cost; the build settled its
+            # own row above, and the record's cost carries both.
+            settle(state, run_id, cost, str(record))
+            cost += build_cost
             lines = ["ended: %s" % now()]
             lines += [
                 "exit.%d: %d" % (part, statuses[part])
@@ -783,11 +930,16 @@ def run(a):
         return refuse("a beam run needs --state-dir")
     if a.rate is None:
         return refuse("a beam run needs --rate")
+    if a.cap is None:
+        return refuse("a beam run needs --cap")
     if not block:
         return refuse("a beam run needs the `## Runner` block in docs/agents/marque.md")
     for field in ("dockerfile", "cpu", "memory"):
         if not block.get(field):
             return refuse("the `## Runner` block has no %s" % field)
+    fallback = block.get("local fallback", "yes")
+    if fallback not in ("yes", "no"):
+        return refuse("`local fallback` in the `## Runner` block must be yes or no")
     dockerfile = Path(worktree) / block["dockerfile"]
     if not dockerfile.exists():
         return refuse("the Dockerfile %s does not exist" % dockerfile)
@@ -809,6 +961,23 @@ def run(a):
                 "`## Runner` block, or --max-wall"
             )
     commands = commands if from_block else [shlex.join(command)]
+    image_id = cached_image(Discard(), dockerfile, a.state_dir)
+    run_id = new_run_id()
+    entries = [
+        (run_id, len(commands) * a.rate * (max_wall + MARGIN) / 60, str(record))
+    ]
+    if image_id is None:
+        entries.append((run_id + ".build", a.rate * MARGIN / 60, "build"))
+    reason = reserve(a.state_dir, entries, a.cap)
+    if reason is not None:
+        print("suite.py: paid compute refused: %s" % reason, file=sys.stderr)
+        if fallback == "no":
+            return 3
+        if from_block:
+            return run_local_commands(
+                record, cwd, tree, commit, commands, refused=reason
+            )
+        return run_local(record, cwd, tree, commit, command, refused=reason)
     return run_beam(
         record,
         worktree,
@@ -821,6 +990,8 @@ def run(a):
         commands,
         boxes,
         a.concurrency,
+        run_id,
+        image_id,
     )
 
 
@@ -832,6 +1003,17 @@ def positive_int(text):
         value = 0
     if value < 1:
         raise argparse.ArgumentTypeError("expected a positive integer, got %r" % text)
+    return value
+
+
+def non_negative_float(text):
+    """An argparse type for an amount that must not be negative."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = -1.0
+    if value < 0:
+        raise argparse.ArgumentTypeError("expected a non-negative amount, got %r" % text)
     return value
 
 
@@ -848,8 +1030,8 @@ def parse_args(argv):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "exit codes: 0 pass, 1 fail, 2 refused before starting (dirty worktree, "
-            "not a git worktree, no command, a missing Beam term), 3 reserved for "
-            "paid compute"
+            "not a git worktree, no command, a missing Beam term), 3 paid compute "
+            "refused when the block says `local fallback: no`"
         ),
     )
     p.add_argument("--record", required=True, metavar="FILE", help="the suite record to write")
@@ -867,6 +1049,15 @@ def parse_args(argv):
         type=float,
         metavar="PER_MINUTE",
         help="currency per wall-minute; required for beam",
+    )
+    p.add_argument(
+        "--cap",
+        type=non_negative_float,
+        metavar="AMOUNT",
+        help=(
+            "the commission's paid-compute cap, in the same currency as "
+            "--rate; required for beam"
+        ),
     )
     p.add_argument(
         "--concurrency",

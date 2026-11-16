@@ -28,6 +28,26 @@ def beam_calls(tmp):
     return path.read_text().splitlines() if path.exists() else []
 
 
+def spend_rows(state):
+    """(kind, run, amount) for each row of the commission ledger."""
+    path = Path(state) / "spend.tsv"
+    rows = []
+    for line in path.read_text().splitlines()[1:]:
+        _, kind, run, amount, _ = line.split("\t")
+        rows.append((kind, run, float(amount)))
+    return rows
+
+
+def seed_ledger(state, *rows):
+    """Pre-seed the ledger in its documented format: (kind, run, amount) rows."""
+    path = Path(state) / "spend.tsv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "time\tkind\trun\tamount\tnote\n"
+        + "".join("2026-01-01T00:00:00Z\t%s\t%s\t%s\tseed\n" % row for row in rows)
+    )
+
+
 def call_indexes(calls, prefix):
     """Where in calls.log the calls that start with prefix are."""
     return [i for i, call in enumerate(calls) if call.startswith(prefix)]
@@ -279,7 +299,7 @@ class BeamStubAllowlistTest(unittest.TestCase):
             self.assertIn("status", violations[0])
 
 
-def beam_ok(repo, record, tmp, *args, env=None):
+def beam_ok(repo, record, tmp, *args, env=None, cap="1000000"):
     state = str(Path(tmp) / "state")
     return run_beam(
         repo,
@@ -288,6 +308,7 @@ def beam_ok(repo, record, tmp, *args, env=None):
         "--runner", "beam",
         "--state-dir", state,
         "--rate", "1.0",
+        "--cap", cap,
         *args,
         env=env,
     )
@@ -296,24 +317,45 @@ def beam_ok(repo, record, tmp, *args, env=None):
 class BeamRefusalTest(unittest.TestCase):
     def test_a_beam_run_missing_a_required_term_is_refused_before_anything(self):
         cases = {
-            "no rate": (BEAM_BLOCK, ["--state-dir", "{state}"], "--rate"),
-            "no state dir": (BEAM_BLOCK, ["--rate", "1.0"], "--state-dir"),
+            "no rate": (
+                BEAM_BLOCK,
+                ["--state-dir", "{state}", "--cap", "1000000"],
+                "--rate",
+            ),
+            "no state dir": (
+                BEAM_BLOCK,
+                ["--rate", "1.0", "--cap", "1000000"],
+                "--state-dir",
+            ),
+            "no cap": (
+                BEAM_BLOCK,
+                ["--state-dir", "{state}", "--rate", "1.0"],
+                "--cap",
+            ),
             "no max wall time": (
                 BEAM_BLOCK.replace("max wall time: 3600\n", ""),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "max wall time",
             ),
             "boxes not a positive integer": (
                 BEAM_BLOCK.replace(
                     "max wall time: 3600\n", "boxes: none\nmax wall time: 3600\n"
                 ),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "positive integer",
             ),
             "missing dockerfile": (
                 BEAM_BLOCK.replace("Dockerfile", "tools/missing.Dockerfile"),
-                ["--state-dir", "{state}", "--rate", "1.0"],
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
                 "does not exist",
+            ),
+            "local fallback neither yes nor no": (
+                BEAM_BLOCK.replace(
+                    "max wall time: 3600\n",
+                    "max wall time: 3600\nlocal fallback: maybe\n",
+                ),
+                ["--state-dir", "{state}", "--rate", "1.0", "--cap", "1000000"],
+                "local fallback",
             ),
         }
         for name, (block, flags, marker) in cases.items():
@@ -345,6 +387,11 @@ class BeamCase(unittest.TestCase):
 
     def calls(self):
         return beam_calls(self.tmp)
+
+    def warm_image(self):
+        """Build and cache the image, so the run under test pays no build time."""
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def assert_no_violations(self):
         # The stub logs a VIOLATION for anything outside the allowlist, for a
@@ -511,6 +558,134 @@ class BeamSerialPartsTest(BeamCase):
         self.assert_no_violations()
 
 
+class BeamCapTest(BeamCase):
+    """The commission's cap: reserve the worst case before starting, refuse, fall back."""
+
+    BLOCK = BEAM_BLOCK.replace("- make test", "- true")
+
+    def test_only_the_reservation_pushing_spend_past_the_cap_refuses_the_run(self):
+        # One part at 1.0 per minute for 3600 + 600 s is 70.0000, plus 600 s of
+        # build at 1.0 is 10.0000: 50.0000 spent + 80.0000 reserved = 130.0000,
+        # past the 100 cap although the spend so far is under it.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="100")
+        reason = "cap: spend 50.0000 + reservation 80.0000 > cap 100.0000"
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("suite.py: paid compute refused: %s" % reason, r.stderr)
+        self.assertEqual(
+            record_lines(self.record)[2:4],
+            ["runner: local", "refused: %s" % reason],
+        )
+        self.assertEqual(record_values(self.record)["verdict"], "pass")
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("image build")],
+            self.calls(),
+        )
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertEqual(spend_rows(self.state), [("settle", "prior", 50.0)])
+        self.assert_no_violations()
+
+    def test_a_reservation_that_lands_exactly_on_the_cap_is_not_refused(self):
+        # 50.0000 spent + 80.0000 reserved is exactly the 130 cap, and the cap
+        # refuses only what would pass it. So the run is a Beam run.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="130")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("paid compute refused", r.stderr)
+        self.assertTrue(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertEqual(record_values(self.record)["runner"], "beam")
+        self.assert_no_violations()
+
+    def test_a_settled_run_is_charged_from_started_at_and_the_confirmed_stop(self):
+        # The stub ages the box 600 s = 10 wall-minutes at 1.0; the reservation
+        # was the 4200 s worst case, 70.0000. Settlement replaces the
+        # reservation with the measured figure.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = spend_rows(self.state)
+        run_ids = {run for _, run, _ in rows if not run.endswith(".build")}
+        self.assertEqual(len(run_ids), 1, rows)
+        run_id = run_ids.pop()
+        self.assertIn(("reserve", run_id, 70.0), rows)
+        settled = [
+            amount for kind, run, amount in rows if kind == "settle" and run == run_id
+        ]
+        self.assertEqual(len(settled), 1, rows)
+        self.assertGreaterEqual(settled[0], 10.0)
+        self.assertLessEqual(settled[0], 11.0)
+        self.assert_no_violations()
+
+    def test_a_build_is_reserved_and_settled_and_a_reused_image_adds_no_rows(self):
+        # The build reserves the 600 s margin at 1.0 per minute: 10.0000. Its
+        # settle comes from the wall time `image build` took, so 0 or more.
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = spend_rows(self.state)
+        builds = {run for _, run, _ in rows if run.endswith(".build")}
+        self.assertEqual(len(builds), 1, rows)
+        build_id = builds.pop()
+        self.assertIn(("reserve", build_id, 10.0), rows)
+        settled = [
+            amount for kind, run, amount in rows if kind == "settle" and run == build_id
+        ]
+        self.assertEqual(len(settled), 1, rows)
+        self.assertGreaterEqual(settled[0], 0.0)
+        # The record's cost is the boxes' cost plus the build's: settling the
+        # build is part of the run's figure, not a separate line.
+        run_id = next(run for _, run, _ in rows if not run.endswith(".build"))
+        run_settle = [
+            amount for kind, run, amount in rows if kind == "settle" and run == run_id
+        ][0]
+        self.assertAlmostEqual(
+            float(record_values(self.record)["cost"]), run_settle + settled[0], places=3
+        )
+        before = spend_rows(self.state)
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        added = spend_rows(self.state)[len(before):]
+        self.assertEqual(
+            [row for row in added if row[1].endswith(".build")], [], added
+        )
+        self.assert_no_violations()
+
+
+class BeamNoFallbackTest(BeamCase):
+    """`local fallback: no`: a refused run has nowhere else to go."""
+
+    BLOCK = (
+        BEAM_BLOCK.replace("- make test", "- true")
+        .replace("max wall time: 3600\n", "max wall time: 3600\nlocal fallback: no\n")
+    )
+
+    def test_a_refused_run_with_no_local_fallback_exits_3_and_creates_nothing(self):
+        # The same 130.0000 against the 100 cap as the fallback case, but the
+        # suite cannot run on the developer's machine.
+        seed_ledger(self.state, ("settle", "prior", "50.0000"))
+        r = self.run_it(cap="100")
+        self.assertEqual(r.returncode, 3, r.stderr)
+        self.assertIn("suite.py: paid compute refused", r.stderr)
+        self.assertFalse(self.record.exists())
+        self.assertFalse(Path(str(self.record.with_suffix(".log"))).exists())
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("container create")],
+            self.calls(),
+        )
+        self.assertFalse(
+            [call for call in self.calls() if call.startswith("image build")],
+            self.calls(),
+        )
+        self.assertEqual(spend_rows(self.state), [("settle", "prior", 50.0)])
+        self.assert_no_violations()
+
+
 class BeamImageCacheTest(BeamCase):
     def test_the_image_is_built_once_per_dockerfile_hash_and_reused(self):
         for _ in range(2):
@@ -575,6 +750,7 @@ class BeamSignalTest(unittest.TestCase):
                             "--runner", "beam",
                             "--state-dir", str(Path(tmp) / "state"),
                             "--rate", "1.0",
+                            "--cap", "1000000",
                         ],
                         cwd=str(repo),
                         env=env,
@@ -624,7 +800,9 @@ class BeamCostTest(BeamCase):
 
     def test_an_unconfirmed_teardown_charges_the_whole_ttl_and_keeps_the_id(self):
         # 1.0 per minute for the full 4200 s TTL: 70.0000. The ID file stays
-        # for the sweep to find.
+        # for the sweep to find. The image is already cached, so the build's
+        # measured wall time adds nothing to the record's cost.
+        self.warm_image()
         env = beam_env(self.tmp)
         env["STUB_BEAM_STOP_IGNORED"] = "1"
         r = self.run_it(env=env)
@@ -672,6 +850,7 @@ class BeamTeardownSignalTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(Path(tmp) / "state"),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                 ],
                 cwd=str(repo),
                 env=env,
@@ -727,6 +906,7 @@ class BeamSlotTest(unittest.TestCase):
                 "--runner", "beam",
                 "--state-dir", str(state),
                 "--rate", "1.0",
+                "--cap", "1000000",
                 "--concurrency", "1",
             ],
             cwd=str(repo),
@@ -787,6 +967,7 @@ class BeamSlotTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(state),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "1",
                 ],
                 cwd=str(repos[0][0]),
@@ -821,6 +1002,7 @@ class BeamSlotTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(state),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "1",
                 ],
                 cwd=str(repos[1][0]),
@@ -849,6 +1031,7 @@ class BeamParallelSignalTest(unittest.TestCase):
                     "--runner", "beam",
                     "--state-dir", str(Path(tmp) / "state"),
                     "--rate", "1.0",
+                    "--cap", "1000000",
                     "--concurrency", "2",
                 ],
                 cwd=str(repo),
@@ -893,6 +1076,91 @@ class BeamParallelSignalTest(unittest.TestCase):
             self.assertEqual(values["teardown.1"], "confirmed")
             self.assertEqual(values["teardown.2"], "confirmed")
             self.assertIn("log", values)
+
+
+class BeamLedgerLockTest(unittest.TestCase):
+    def test_concurrent_writers_to_the_ledger_do_not_corrupt_it(self):
+        # Six runs share one state dir and append at once. The lock makes each
+        # read-and-append atomic: every row keeps all five fields, and every
+        # run has exactly one reserve and one settle.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, _ = make_beam_repo(tmp)
+            state = Path(tmp) / "state"
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "1"
+            procs = []
+            for index in range(6):
+                procs.append(
+                    subprocess.Popen(
+                        [
+                            sys.executable, str(SUITE), "run",
+                            "--record", str(Path(tmp) / "logs" / ("run-%d.record" % index)),
+                            "--runner", "beam",
+                            "--state-dir", str(state),
+                            "--rate", "1.0",
+                            "--cap", "1000000",
+                            "--concurrency", "6",
+                        ],
+                        cwd=str(repo),
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                )
+            try:
+                for p in procs:
+                    p.communicate(timeout=120)
+            finally:
+                for p in procs:
+                    if p.poll() is None:
+                        p.kill()
+                        p.communicate()
+            self.assertEqual([p.returncode for p in procs], [0] * 6)
+            lines = (state / "spend.tsv").read_text().splitlines()
+            self.assertEqual(lines[0], "time\tkind\trun\tamount\tnote")
+            for line in lines[1:]:
+                fields = line.split("\t")
+                self.assertEqual(len(fields), 5, line)
+                float(fields[3])
+            rows = spend_rows(state)
+            run_ids = [
+                run
+                for kind, run, _ in rows
+                if kind == "reserve" and not run.endswith(".build")
+            ]
+            self.assertEqual(len(run_ids), 6, run_ids)
+            for run_id in run_ids:
+                with self.subTest(run=run_id):
+                    self.assertEqual(
+                        len([1 for k, r, _ in rows if r == run_id and k == "reserve"]),
+                        1,
+                    )
+                    self.assertEqual(
+                        len([1 for k, r, _ in rows if r == run_id and k == "settle"]),
+                        1,
+                    )
+
+
+class LocalSpendTest(unittest.TestCase):
+    def test_a_local_run_writes_no_ledger_rows(self):
+        # The ledger is the paid-compute account; a local run spends nothing.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_repo(tmp)
+            state = Path(tmp) / "state"
+            r = subprocess.run(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(record),
+                    "--state-dir", str(state),
+                    "--", "true",
+                ],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((state / "spend.tsv").exists())
 
 
 class LocalBlockCommandsTest(unittest.TestCase):

@@ -58,7 +58,7 @@ Agree every term with the developer and write this block to `plan.md`:
 - **Authority**: <land and close without asking? yes | no>
 - **Fallback**: <may the orchestrator implement once the retries run out? yes | no>
 - **Concurrency**: <n>
-- **Paid compute**: <on | off>, cap <amount>
+- **Paid compute**: <on | off> — runner <local | beam>, rate <amount per wall-minute, matching the account's tier>, cap <amount>, runner concurrency <n>, max wall time <seconds>
 - **Target branch**: <branch> — the repo's default branch unless the developer names another
 - **Landing mode**: <direct | pr>
 - **Approval cap**: <n> — `pr` mode with "the developer approves"; default, the concurrency
@@ -69,6 +69,8 @@ Agree every term with the developer and write this block to `plan.md`:
 
 Landing terms beyond the block — the target branch, the modes and their safeguards — are in `reference/landing.md`.
 
+The orchestrator passes the rate, cap and runner concurrency to `suite.py` as `--rate`, `--cap` and `--concurrency` (→ `reference/runners.md`).
+
 For `pr` mode, recommend the forge's **branch must be up to date before merging** setting. With it, the forge never merges onto a target that moved after the integration run, so `finish`'s tree check (`reference/landing.md`) stays quiet.
 
 ## 6. `pr` with "the developer approves"
@@ -78,6 +80,8 @@ For `pr` mode, recommend the forge's **branch must be up to date before merging*
 ## 7. Shared machine
 
 If the project's full suite looks heavy, ask whether its `AGENTS.md` says how suites take turns. Don't impose a lock: the integration runs follow whatever rule it states.
+
+For a heavy suite, also ask whether to declare a `## Runner` block in `docs/agents/marque.md` so integration runs go to a rented runner (→ `reference/runners.md`), and whether the suite can fall back to the local machine (`local fallback: no` if not).
 
 ## 8. Extensions
 
