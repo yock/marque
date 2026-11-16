@@ -885,6 +885,8 @@ class BeamCostTest(BeamCase):
         # names the machine this run is on.
         self.assertEqual(values["host"], os.uname().nodename)
         self.assertEqual(values["worst"], "70.0000")
+        # The run stays at its worst case in the ledger: 1.0 x 4200/60.
+        self.assertIn(("settle", run_id, 70.0), spend_rows(self.state))
         self.assert_no_violations()
 
 
