@@ -255,7 +255,7 @@ class BeamStubAllowlistTest(unittest.TestCase):
             self.assertIn("status", violations[0])
 
 
-def beam_ok(repo, record, tmp, *args):
+def beam_ok(repo, record, tmp, *args, env=None):
     state = str(Path(tmp) / "state")
     return run_beam(
         repo,
@@ -265,6 +265,7 @@ def beam_ok(repo, record, tmp, *args):
         "--state-dir", state,
         "--rate", "1.0",
         *args,
+        env=env,
     )
 
 
@@ -403,6 +404,73 @@ class BeamImageCacheTest(BeamCase):
             len([c for c in self.calls() if c.startswith("image build")]), 2
         )
         self.assert_no_violations()
+
+
+class BeamFailureTest(BeamCase):
+    def test_a_failing_command_is_a_failed_run_that_still_tears_down(self):
+        # `exit 7` from the stub stands for a failing build: the remote status
+        # is the run's status, and the box is still stopped and confirmed.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_EXEC_STATUS"] = "7"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        values = record_values(self.record)
+        self.assertEqual(values["exit.1"], "7")
+        self.assertEqual(values["verdict"], "fail")
+        self.assertEqual(values["teardown"], "confirmed")
+        self.assertIn("container stop box-1", self.calls())
+        self.assertEqual(live_containers(self.tmp), {})
+        self.assert_no_violations()
+
+
+class BeamSignalTest(unittest.TestCase):
+    def test_teardown_runs_and_is_confirmed_on_sigterm_and_sighup(self):
+        # POSIX: a process signalled with N reports 128 + N, so SIGTERM (15)
+        # records 143 and SIGHUP (1) records 129.
+        for sig, code in ((signal.SIGTERM, 143), (signal.SIGHUP, 129)):
+            with self.subTest(signal=sig):
+                with tempfile.TemporaryDirectory() as tmp:
+                    repo, record = make_beam_repo(tmp)
+                    env = beam_env(tmp)
+                    env["STUB_BEAM_EXEC_SLEEP"] = "30"
+                    p = subprocess.Popen(
+                        [
+                            sys.executable, str(SUITE), "run",
+                            "--record", str(record),
+                            "--runner", "beam",
+                            "--state-dir", str(Path(tmp) / "state"),
+                            "--rate", "1.0",
+                        ],
+                        cwd=str(repo),
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    try:
+                        deadline = time.time() + 20
+                        while time.time() < deadline:
+                            if any(
+                                call.startswith("container exec") and "make test" in call
+                                for call in beam_calls(tmp)
+                            ):
+                                break
+                            time.sleep(0.1)
+                        else:
+                            self.fail("the suite never reached the run command")
+                        p.send_signal(sig)
+                        p.communicate(timeout=30)
+                    finally:
+                        if p.poll() is None:
+                            p.kill()
+                            p.communicate()
+                    self.assertEqual(p.returncode, 1)
+                    self.assertIn("container stop box-1", beam_calls(tmp))
+                    self.assertEqual(live_containers(tmp), {})
+                    values = record_values(record)
+                    self.assertEqual(values["exit.1"], str(code))
+                    self.assertEqual(values["verdict"], "fail")
+                    self.assertEqual(values["teardown"], "confirmed")
 
 
 class LocalBlockCommandsTest(unittest.TestCase):
