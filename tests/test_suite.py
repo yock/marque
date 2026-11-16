@@ -828,6 +828,66 @@ class BeamSlotTest(unittest.TestCase):
             self.assertLess(time.time() - began, 15)
 
 
+class BeamParallelSignalTest(unittest.TestCase):
+    def test_a_signal_during_a_parallel_run_tears_down_every_sandbox(self):
+        # POSIX: 128 + SIGTERM (15) is 143. Both parts are still running when
+        # the signal lands, so both sandboxes must be stopped, exactly once
+        # each, and the record must still be closed.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_beam_repo(tmp, two_part_block(2))
+            env = beam_env(tmp)
+            env["STUB_BEAM_EXEC_SLEEP"] = "30"
+            p = subprocess.Popen(
+                [
+                    sys.executable, str(SUITE), "run",
+                    "--record", str(record),
+                    "--runner", "beam",
+                    "--state-dir", str(Path(tmp) / "state"),
+                    "--rate", "1.0",
+                    "--concurrency", "2",
+                ],
+                cwd=str(repo),
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.time() + 20
+                while time.time() < deadline:
+                    run_lines = [
+                        call
+                        for call in beam_calls(tmp)
+                        if call.startswith("container exec") and "make part" in call
+                    ]
+                    if len(run_lines) == 2:
+                        break
+                    time.sleep(0.1)
+                else:
+                    self.fail("the suite never reached both commands")
+                p.send_signal(signal.SIGTERM)
+                p.communicate(timeout=60)
+            finally:
+                if p.poll() is None:
+                    p.kill()
+                    p.communicate()
+            self.assertEqual(p.returncode, 1)
+            calls = beam_calls(tmp)
+            stops = [call for call in calls if call.startswith("container stop")]
+            self.assertEqual(len(stops), 2, calls)
+            self.assertEqual(len(set(stops)), 2, calls)
+            self.assertEqual(live_containers(tmp), {})
+            lines = record_lines(record)
+            self.assertTrue([line for line in lines if line.startswith("ended:")], lines)
+            values = record_values(record)
+            self.assertEqual(values["exit.1"], "143")
+            self.assertEqual(values["exit.2"], "143")
+            self.assertEqual(values["verdict"], "fail")
+            self.assertEqual(values["teardown.1"], "confirmed")
+            self.assertEqual(values["teardown.2"], "confirmed")
+            self.assertIn("log", values)
+
+
 class LocalBlockCommandsTest(unittest.TestCase):
     def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
         # POSIX: `true` exits 0 and `false` exits 1. A later failure must not
