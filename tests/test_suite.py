@@ -940,6 +940,43 @@ class SweepTest(unittest.TestCase):
         self.assertEqual(self.stops(), [])
         self.assertEqual(live_ids(self.tmp), ["box-7"])
 
+    def test_a_recorded_sandbox_whose_run_is_still_live_is_left_alone(self):
+        # This test process owns the run: its pid is alive, so the run is.
+        seed_live(self.tmp, "box-5")
+        write_id_file(
+            self.state,
+            "box-5",
+            pid=os.getpid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertTrue((self.state / "beam" / "containers" / "box-5").exists())
+        self.assertTrue(r.stdout.startswith("live box-5:"), r.stdout)
+        self.assertEqual(live_ids(self.tmp), ["box-5"])
+
+    def test_a_box_recorded_by_another_host_is_left_alone(self):
+        # Its pid may be dead here, but another machine's run owns it: the
+        # sweep never touches it, nor the state dir it recorded it in.
+        seed_live(self.tmp, "box-6")
+        write_id_file(
+            self.state,
+            "box-6",
+            pid=dead_pid(),
+            host="some-other-host",
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertTrue((self.state / "beam" / "containers" / "box-6").exists())
+        self.assertTrue(r.stdout.startswith("live box-6:"), r.stdout)
+        self.assertEqual(live_ids(self.tmp), ["box-6"])
+
 
 class BeamTeardownSignalTest(unittest.TestCase):
     def test_a_signal_during_teardown_still_finishes_it_and_writes_the_record(self):

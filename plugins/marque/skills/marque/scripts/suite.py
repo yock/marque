@@ -899,6 +899,43 @@ def refuse(message):
     return 2
 
 
+def id_file_fields(path):
+    """The `key: value` lines one container's ID file holds."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    fields = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(": ")
+        if sep:
+            fields[key] = value
+    return fields
+
+
+def run_is_live(fields):
+    """Whether the run that recorded this box is still running.
+
+    Another host's run is never ours to touch. On this host its pid decides;
+    a file with no parsable pid has nothing to prove the run is alive, and one
+    written before the host line existed is this host's.
+    """
+    host = fields.get("host") or socket.gethostname()
+    if host != socket.gethostname():
+        return True
+    try:
+        pid = int(fields.get("pid", ""))
+    except ValueError:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
 def sweep(a):
     """Tear down recorded boxes whose run is no longer live, then settle them."""
     state = Path(a.state_dir)
@@ -914,9 +951,23 @@ def sweep(a):
         for entry in data
         if isinstance(entry, dict) and entry.get("container_id")
     ]
-    recorded = sorted(
-        path.name for path in (state / "beam" / "containers").iterdir()
-    ) if (state / "beam" / "containers").is_dir() else []
+    containers = state / "beam" / "containers"
+    recorded = (
+        sorted(path.name for path in containers.iterdir())
+        if containers.is_dir()
+        else []
+    )
+    for name in recorded:
+        fields = id_file_fields(containers / name)
+        if run_is_live(fields):
+            print(
+                "live %s: its run is still running (pid %s on %s)"
+                % (
+                    name,
+                    fields.get("pid", "?"),
+                    fields.get("host") or socket.gethostname(),
+                )
+            )
     for container_id in live:
         if container_id not in recorded:
             print("unrecorded %s: left alone" % container_id)
