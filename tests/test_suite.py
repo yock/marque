@@ -384,6 +384,11 @@ class BeamCase(unittest.TestCase):
     def calls(self):
         return beam_calls(self.tmp)
 
+    def warm_image(self):
+        """Build and cache the image, so the run under test pays no build time."""
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def assert_no_violations(self):
         # The stub logs a VIOLATION for anything outside the allowlist, for a
         # create without --ttl, for an exec without --timeout and for an upload
@@ -616,6 +621,42 @@ class BeamCapTest(BeamCase):
         self.assert_no_violations()
 
 
+    def test_a_build_is_reserved_and_settled_and_a_reused_image_adds_no_rows(self):
+        # The build reserves the 600 s margin at 1.0 per minute: 10.0000. Its
+        # settle comes from the wall time `image build` took, so 0 or more.
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = spend_rows(self.state)
+        builds = {run for _, run, _ in rows if run.endswith(".build")}
+        self.assertEqual(len(builds), 1, rows)
+        build_id = builds.pop()
+        self.assertIn(("reserve", build_id, 10.0), rows)
+        settled = [
+            amount for kind, run, amount in rows if kind == "settle" and run == build_id
+        ]
+        self.assertEqual(len(settled), 1, rows)
+        self.assertGreaterEqual(settled[0], 0.0)
+        # The record's cost is the boxes' cost plus the build's: settling the
+        # build is part of the run's figure, not a separate line.
+        run_id = next(
+            run for _, run, _ in rows if not run.endswith(".build")
+        )
+        run_settle = [
+            amount for kind, run, amount in rows if kind == "settle" and run == run_id
+        ][0]
+        self.assertAlmostEqual(
+            float(record_values(self.record)["cost"]), run_settle + settled[0], places=3
+        )
+        before = spend_rows(self.state)
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        added = spend_rows(self.state)[len(before):]
+        self.assertEqual(
+            [row for row in added if row[1].endswith(".build")], [], added
+        )
+        self.assert_no_violations()
+
+
 class BeamNoFallbackTest(BeamCase):
     """`local fallback: no`: a refused run has nowhere else to go."""
 
@@ -759,7 +800,9 @@ class BeamCostTest(BeamCase):
 
     def test_an_unconfirmed_teardown_charges_the_whole_ttl_and_keeps_the_id(self):
         # 1.0 per minute for the full 4200 s TTL: 70.0000. The ID file stays
-        # for the sweep to find.
+        # for the sweep to find. The image is already cached, so the build's
+        # measured wall time adds nothing to the record's cost.
+        self.warm_image()
         env = beam_env(self.tmp)
         env["STUB_BEAM_STOP_IGNORED"] = "1"
         r = self.run_it(env=env)

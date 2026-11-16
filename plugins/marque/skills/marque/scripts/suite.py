@@ -778,14 +778,21 @@ def run_beam(
     NOTED.clear()
     signum = None
     workers = []
+    build_cost = 0.0
     with open(str(log_path), "w") as handle:
         log = RunLog(handle)
         previous = install_handlers(interrupted)
         try:
             if image_id is None:
-                image_id = build_image(
-                    log, Path(worktree) / block["dockerfile"], worktree, state
-                )
+                began = time.monotonic()
+                try:
+                    image_id = build_image(
+                        log, Path(worktree) / block["dockerfile"], worktree, state
+                    )
+                finally:
+                    # A failed build's time was spent too.
+                    build_cost = rate * (time.monotonic() - began) / 60
+                    settle(state, run_id + ".build", build_cost, "build")
             remaining = queue.Queue()
             for part in range(1, parts + 1):
                 remaining.put(part)
@@ -850,6 +857,7 @@ def run_beam(
                 else:
                     cost += rate * ttl / 60
             settle(state, run_id, cost, str(record))
+            cost += build_cost
             lines = ["ended: %s" % now()]
             lines += [
                 "exit.%d: %d" % (part, statuses[part])
