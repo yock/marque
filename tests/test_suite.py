@@ -16,11 +16,18 @@ STUBS = Path(__file__).resolve().parent / "stubs"
 
 
 def beam_env(tmp):
-    """The env a Beam run needs: the stub first on PATH and its state dir."""
+    """The env a Beam run needs: the stub first on PATH, its state dir and a temp HOME.
+
+    The temp HOME keeps the per-machine config and ledger out of the real
+    `~/.config/marque/marque.md` and `~/.local/share/marque/spend.tsv`.
+    """
     env = {k: v for k, v in os.environ.items() if not k.startswith("STUB_BEAM")}
     env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
     env["STUB_BEAM_STATE"] = str(Path(tmp) / "stub")
     env["STUB_BEAM_ID_DIR"] = str(Path(tmp) / "state" / "beam" / "containers")
+    home = Path(tmp) / "home"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
     return env
 
 
@@ -1418,6 +1425,7 @@ class LocalSpendTest(unittest.TestCase):
                 cwd=str(repo),
                 capture_output=True,
                 text=True,
+                env=beam_env(tmp),
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertFalse((state / "spend.tsv").exists())
