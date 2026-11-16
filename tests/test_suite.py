@@ -387,6 +387,24 @@ class BeamSandboxTest(BeamCase):
         self.assert_no_violations()
 
 
+class BeamImageCacheTest(BeamCase):
+    def test_the_image_is_built_once_per_dockerfile_hash_and_reused(self):
+        for _ in range(2):
+            r = self.run_it()
+            self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            len([c for c in self.calls() if c.startswith("image build")]), 1
+        )
+        (self.repo / "Dockerfile").write_text("FROM scratch\n# v2\n")
+        sh("git", "commit", "-am", "Change the Dockerfile", cwd=self.repo)
+        r = self.run_it()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            len([c for c in self.calls() if c.startswith("image build")]), 2
+        )
+        self.assert_no_violations()
+
+
 class LocalBlockCommandsTest(unittest.TestCase):
     def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
         # POSIX: `true` exits 0 and `false` exits 1. A later failure must not
