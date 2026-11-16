@@ -49,6 +49,29 @@ def make_repo(tmp):
     return repo, root / "state" / "logs" / "full-suite-1.record"
 
 
+BEAM_BLOCK = """## Runner
+
+runner: beam
+dockerfile: Dockerfile
+cpu: 2
+memory: 4096
+max wall time: 3600
+commands:
+- make test
+"""
+
+
+def make_beam_repo(tmp, block=BEAM_BLOCK):
+    """The make_repo repo plus a committed Dockerfile and a `## Runner` block."""
+    repo, record = make_repo(tmp)
+    (repo / "Dockerfile").write_text("FROM scratch\n")
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / "docs" / "agents" / "marque.md").write_text(block)
+    sh("git", "add", "-A", cwd=repo)
+    sh("git", "commit", "--quiet", "-m", "Add the Beam runner block", cwd=repo)
+    return repo, record
+
+
 def run_suite(repo, record, command):
     return subprocess.run(
         [sys.executable, str(SUITE), "run", "--record", str(record), "--", *command],
@@ -56,6 +79,28 @@ def run_suite(repo, record, command):
         capture_output=True,
         text=True,
     )
+
+
+def run_beam(repo, record, tmp, *args, command=None, env=None):
+    """Run a Beam suite; callers pass the flags they want to exercise."""
+    cmd = [sys.executable, str(SUITE), "run", "--record", str(record), *args]
+    if command:
+        cmd += ["--", *command]
+    return subprocess.run(
+        cmd,
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        env=beam_env(tmp) if env is None else env,
+    )
+
+
+def record_lines(record):
+    return record.read_text().splitlines()
+
+
+def record_values(record):
+    return dict(line.split(": ", 1) for line in record_lines(record))
 
 
 class HelpTest(unittest.TestCase):
@@ -208,3 +253,64 @@ class BeamStubAllowlistTest(unittest.TestCase):
             violations = [line for line in beam_calls(tmp) if line.startswith("VIOLATION")]
             self.assertEqual(len(violations), 1, beam_calls(tmp))
             self.assertIn("status", violations[0])
+
+
+def beam_ok(repo, record, tmp, *args):
+    state = str(Path(tmp) / "state")
+    return run_beam(
+        repo,
+        record,
+        tmp,
+        "--runner", "beam",
+        "--state-dir", state,
+        "--rate", "1.0",
+        *args,
+    )
+
+
+class BeamRefusalTest(unittest.TestCase):
+    def test_a_beam_run_missing_a_required_term_is_refused_before_anything(self):
+        cases = {
+            "no rate": (BEAM_BLOCK, ["--state-dir", "{state}"], "--rate"),
+            "no state dir": (BEAM_BLOCK, ["--rate", "1.0"], "--state-dir"),
+            "no max wall time": (
+                BEAM_BLOCK.replace("max wall time: 3600\n", ""),
+                ["--state-dir", "{state}", "--rate", "1.0"],
+                "max wall time",
+            ),
+            "two commands": (
+                BEAM_BLOCK + "- ctest\n",
+                ["--state-dir", "{state}", "--rate", "1.0"],
+                "parallel parts",
+            ),
+        }
+        for name, (block, flags, marker) in cases.items():
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    repo, record = make_beam_repo(tmp, block)
+                    args = [a.replace("{state}", str(Path(tmp) / "state")) for a in flags]
+                    r = run_beam(repo, record, tmp, "--runner", "beam", *args)
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertIn(marker, r.stderr)
+                    self.assertFalse(record.exists())
+                    self.assertEqual(beam_calls(tmp), [])
+
+
+class LocalBlockCommandsTest(unittest.TestCase):
+    def test_the_blocks_commands_run_locally_in_order_and_all_of_them_run(self):
+        # POSIX: `true` exits 0 and `false` exits 1. A later failure must not
+        # stop the commands after it: the record carries each exit status.
+        block = "## Runner\n\ncommands:\n- true\n- false\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, record = make_beam_repo(tmp, block)
+            r = subprocess.run(
+                [sys.executable, str(SUITE), "run", "--record", str(record)],
+                cwd=str(repo),
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(r.returncode, 1, r.stderr)
+            lines = record_lines(record)
+            self.assertIn("exit.1: 0", lines)
+            self.assertIn("exit.2: 1", lines)
+            self.assertIn("verdict: fail", lines)
