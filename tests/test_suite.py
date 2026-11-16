@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -404,6 +405,49 @@ class BeamCase(unittest.TestCase):
 def live_containers(tmp):
     path = Path(tmp) / "stub" / "containers.json"
     return json.loads(path.read_text()) if path.exists() else {}
+
+
+def seed_live(tmp, *ids):
+    """Make the stub report these container IDs live, all started just now."""
+    stub = Path(tmp) / "stub"
+    stub.mkdir(parents=True, exist_ok=True)
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    (stub / "containers.json").write_text(
+        json.dumps({container_id: started for container_id in sorted(ids)})
+    )
+
+
+def write_id_file(state, box, **fields):
+    """One recorded container's ID file, in the documented `key: value` form."""
+    directory = Path(state) / "beam" / "containers"
+    directory.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "%s: %s" % (key, fields[key])
+        for key in ("pid", "host", "run", "record", "created", "worst")
+        if key in fields
+    ]
+    (directory / box).write_text("".join(line + "\n" for line in lines))
+
+
+def dead_pid():
+    """A pid that has already finished: os.kill(pid, 0) says it is gone."""
+    process = subprocess.Popen(["true"])
+    process.wait()
+    return process.pid
+
+
+def run_sweep(tmp, state, env=None):
+    return subprocess.run(
+        [sys.executable, str(SUITE), "sweep", "--state-dir", str(state)],
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        env=beam_env(tmp) if env is None else env,
+    )
+
+
+def live_ids(tmp):
+    return sorted(live_containers(tmp))
 
 
 class BeamSandboxTest(BeamCase):
@@ -816,6 +860,35 @@ class BeamCostTest(BeamCase):
         )
         self.assert_no_violations()
 
+    def test_the_id_file_names_the_run_its_host_and_its_worst_case(self):
+        # A kept ID file tells the sweep whose run it belongs to and what the
+        # box costs at worst: the ledger's own run id, this machine's host
+        # name, and 1.0 per minute for the 4200 s TTL, 70.0000.
+        self.warm_image()
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STOP_IGNORED"] = "1"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run_id = [
+            run
+            for kind, run, _ in spend_rows(self.state)
+            if kind == "reserve" and not run.endswith(".build")
+        ][-1]
+        values = dict(
+            line.split(": ", 1)
+            for line in (self.state / "beam" / "containers" / "box-1")
+            .read_text()
+            .splitlines()
+        )
+        self.assertEqual(values["run"], run_id)
+        # The node name from uname, not the call the script makes: the file
+        # names the machine this run is on.
+        self.assertEqual(values["host"], os.uname().nodename)
+        self.assertEqual(values["worst"], "70.0000")
+        # The run stays at its worst case in the ledger: 1.0 x 4200/60.
+        self.assertIn(("settle", run_id, 70.0), spend_rows(self.state))
+        self.assert_no_violations()
+
 
 class BeamMaxWallTest(BeamCase):
     def test_max_wall_overrides_the_blocks_max_wall_time(self):
@@ -831,6 +904,193 @@ class BeamMaxWallTest(BeamCase):
                 with self.subTest(call=call):
                     self.assertIn("--timeout 60", call)
         self.assert_no_violations()
+
+
+class SweepTest(unittest.TestCase):
+    """`suite.py sweep`: only the sandboxes Marque recorded, and only dead runs'."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = self._tmp.name
+        self.state = Path(self.tmp) / "state"
+
+    def sweep(self, env=None):
+        return run_sweep(self.tmp, self.state, env)
+
+    def calls(self):
+        return beam_calls(self.tmp)
+
+    def stops(self):
+        return [call for call in self.calls() if call.startswith("container stop")]
+
+    def test_a_state_dir_that_never_used_beam_is_swept_without_a_beam_call(self):
+        # No `<state>/beam/` at all: a local-only project, so no `beam` call,
+        # no output and a clean exit.
+        self.state.mkdir()
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_live_sandbox_marque_did_not_record_is_reported_and_left_alone(self):
+        seed_live(self.tmp, "box-7")
+        (self.state / "beam" / "containers").mkdir(parents=True)
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "unrecorded box-7: left alone\n")
+        self.assertEqual(self.stops(), [])
+        self.assertEqual(live_ids(self.tmp), ["box-7"])
+
+    def test_a_recorded_sandbox_whose_run_is_still_live_is_left_alone(self):
+        # This test process owns the run: its pid is alive, so the run is.
+        seed_live(self.tmp, "box-5")
+        write_id_file(
+            self.state,
+            "box-5",
+            pid=os.getpid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertTrue((self.state / "beam" / "containers" / "box-5").exists())
+        self.assertTrue(r.stdout.startswith("live box-5:"), r.stdout)
+        self.assertEqual(live_ids(self.tmp), ["box-5"])
+
+    def test_a_box_recorded_by_another_host_is_left_alone(self):
+        # Its pid may be dead here, but another machine's run owns it: the
+        # sweep never touches it, nor the state dir it recorded it in.
+        seed_live(self.tmp, "box-6")
+        write_id_file(
+            self.state,
+            "box-6",
+            pid=dead_pid(),
+            host="some-other-host",
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertTrue((self.state / "beam" / "containers" / "box-6").exists())
+        self.assertTrue(r.stdout.startswith("live box-6:"), r.stdout)
+        self.assertEqual(live_ids(self.tmp), ["box-6"])
+
+    def test_a_dead_runs_box_is_stopped_and_its_id_file_removed(self):
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("container stop box-9", self.calls())
+        self.assertEqual(live_ids(self.tmp), [])
+        self.assertFalse((self.state / "beam" / "containers" / "box-9").exists())
+        self.assertIn("stopped box-9: confirmed\n", r.stdout)
+
+    def test_a_recorded_box_that_is_already_gone_loses_its_id_file(self):
+        # Nothing is live on the account, so there is nothing to stop; the ID
+        # file of a box that no longer exists is just stale.
+        write_id_file(
+            self.state,
+            "box-3",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.stops(), [])
+        self.assertFalse((self.state / "beam" / "containers" / "box-3").exists())
+        self.assertEqual(r.stdout, "gone box-3\n")
+
+    def test_an_unconfirmed_stop_keeps_the_id_file_and_exits_1(self):
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STOP_IGNORED"] = "1"
+        r = self.sweep(env)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(r.stdout, "stopped box-9: unconfirmed\n")
+        self.assertTrue((self.state / "beam" / "containers" / "box-9").exists())
+        self.assertEqual(live_ids(self.tmp), ["box-9"])
+
+    def test_a_listing_that_fails_touches_nothing_and_exits_1(self):
+        # With no `beam` to ask, nothing is known about the account: the sweep
+        # touches no ID file, says it could not list, and exits 1.
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        (Path(self.tmp) / "empty").mkdir()
+        env = beam_env(self.tmp)
+        env["PATH"] = str(Path(self.tmp) / "empty")
+        r = self.sweep(env)
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout, "")
+        self.assertIn("sweep: cannot list containers", r.stderr)
+        self.assertTrue((self.state / "beam" / "containers" / "box-9").exists())
+
+    def test_the_sweep_settles_a_crashed_runs_reservation_at_its_worst_case(self):
+        # R1 reserved 70.0000 — 1.0 per minute for the 4200 s TTL — and never
+        # settled: its box is dead, so the worst case is what it spent.
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        seed_ledger(self.state, ("reserve", "R1", "70.0000"))
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("settled R1 at worst case 70.0000\n", r.stdout)
+        self.assertIn(("settle", "R1", 70.0), spend_rows(self.state))
+
+    def test_a_run_that_already_settled_is_not_settled_again(self):
+        # Its own teardown already priced the unconfirmed box at worst case;
+        # the sweep leaves that figure alone.
+        seed_live(self.tmp, "box-9")
+        write_id_file(
+            self.state,
+            "box-9",
+            pid=dead_pid(),
+            host=os.uname().nodename,
+            run="R1",
+            worst="70.0000",
+        )
+        seed_ledger(
+            self.state, ("reserve", "R1", "70.0000"), ("settle", "R1", "12.0000")
+        )
+        r = self.sweep()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("settled R1", r.stdout)
+        self.assertEqual(
+            [row for row in spend_rows(self.state) if row[1] == "R1"],
+            [("reserve", "R1", 70.0), ("settle", "R1", 12.0)],
+        )
 
 
 class BeamTeardownSignalTest(unittest.TestCase):

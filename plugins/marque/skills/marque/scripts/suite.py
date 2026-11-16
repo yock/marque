@@ -34,6 +34,7 @@ import queue
 import shlex
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -270,8 +271,13 @@ class Discard:
         pass
 
 
-def write_container(state, container_id, record):
-    """Record the container the moment it exists, so an orphan can be found."""
+def write_container(state, container_id, record, run_id, worst):
+    """Record the container the moment it exists, so an orphan can be found.
+
+    The sweep reads these back: the run tells it what to settle, the host and
+    pid tell it whether that run is still alive, and `worst` is what the box
+    costs at its worst if the teardown could not be confirmed.
+    """
     directory = Path(state) / "beam" / "containers"
     directory.mkdir(parents=True, exist_ok=True)
     with open(str(directory / container_id), "w") as f:
@@ -279,8 +285,11 @@ def write_container(state, container_id, record):
             f,
             [
                 "pid: %d" % os.getpid(),
+                "host: %s" % socket.gethostname(),
+                "run: %s" % run_id,
                 "record: %s" % Path(record).resolve(),
                 "created: %s" % now(),
+                "worst: %.4f" % worst,
             ],
         )
 
@@ -648,6 +657,7 @@ def run_beam(
     record.parent.mkdir(parents=True, exist_ok=True)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     ttl = max_wall + MARGIN
+    worst = rate * ttl / 60
     parts = len(commands)
 
     # Shared by the main thread and the workers, all of it under `registry`.
@@ -736,7 +746,7 @@ def run_beam(
                         raise BeamError(status_of(r.returncode) or 1)
                     container_id = data["container_id"]
                     boxes_by_part[part] = container_id
-                    write_container(state, container_id, record)
+                    write_container(state, container_id, record, run_id, worst)
                     with open(str(record), "a") as f:
                         write_lines(f, ["container.%d: %s" % (part, container_id)])
                 upload(log, worktree, tree, container_id, max_wall)
@@ -887,6 +897,119 @@ def run_beam(
 def refuse(message):
     print("suite.py: refusing to run: %s" % message, file=sys.stderr)
     return 2
+
+
+def id_file_fields(path):
+    """The `key: value` lines one container's ID file holds."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    fields = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(": ")
+        if sep:
+            fields[key] = value
+    return fields
+
+
+def run_is_live(fields):
+    """Whether the run that recorded this box is still running.
+
+    Another host's run is never ours to touch. On this host its pid decides;
+    a file with no parsable pid has nothing to prove the run is alive, and one
+    written before the host line existed is this host's.
+    """
+    host = fields.get("host") or socket.gethostname()
+    if host != socket.gethostname():
+        return True
+    try:
+        pid = int(fields.get("pid", ""))
+    except ValueError:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
+
+
+def settle_worst_cases(state, runs):
+    """Settle each crashed run's reservation at its worst case, once each.
+
+    A run that already settled priced its own unconfirmed boxes itself, so
+    only a reservation with no settle row is the sweep's to close.
+    """
+    reserved = {}
+    settled = set()
+    for row in ledger_rows(state):
+        if row["kind"] == "reserve":
+            reserved[row["run"]] = row["amount"]
+        elif row["kind"] == "settle":
+            settled.add(row["run"])
+    for run_id in sorted(runs):
+        if run_id not in reserved or run_id in settled:
+            continue
+        amount = reserved[run_id]
+        settle(state, run_id, amount, "sweep: worst case")
+        print("settled %s at worst case %.4f" % (run_id, amount))
+
+
+def sweep(a):
+    """Tear down recorded boxes whose run is no longer live, then settle them."""
+    state = Path(a.state_dir)
+    if not (state / "beam").is_dir():
+        return 0
+    r = beam(Discard(), "container", "list", "--format", "json")
+    data = json_of(r)
+    if r.returncode != 0 or not isinstance(data, list):
+        print("sweep: cannot list containers", file=sys.stderr)
+        return 1
+    live = [
+        entry.get("container_id")
+        for entry in data
+        if isinstance(entry, dict) and entry.get("container_id")
+    ]
+    containers = state / "beam" / "containers"
+    recorded = (
+        sorted(path.name for path in containers.iterdir())
+        if containers.is_dir()
+        else []
+    )
+    unconfirmed = False
+    crashed = set()
+    for name in recorded:
+        fields = id_file_fields(containers / name)
+        if run_is_live(fields):
+            print(
+                "live %s: its run is still running (pid %s on %s)"
+                % (
+                    name,
+                    fields.get("pid", "?"),
+                    fields.get("host") or socket.gethostname(),
+                )
+            )
+            continue
+        if fields.get("run"):
+            crashed.add(fields["run"])
+        if name in live:
+            confirmed, _ = stop_container(Discard(), name)
+            if confirmed:
+                (containers / name).unlink(missing_ok=True)
+                print("stopped %s: confirmed" % name)
+            else:
+                unconfirmed = True
+                print("stopped %s: unconfirmed" % name)
+        else:
+            (containers / name).unlink(missing_ok=True)
+            print("gone %s" % name)
+    settle_worst_cases(state, crashed)
+    for container_id in live:
+        if container_id not in recorded:
+            print("unrecorded %s: left alone" % container_id)
+    return 1 if unconfirmed else 0
 
 
 def run(a):
@@ -1076,6 +1199,17 @@ def parse_args(argv):
         help="override the `## Runner` block's max wall time",
     )
     p.add_argument("command", nargs=argparse.REMAINDER, metavar="CMD", help="the command after --")
+
+    p = sub.add_parser(
+        "sweep",
+        help="tear down recorded Beam sandboxes whose run is no longer live",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit codes: 0 swept, 1 a teardown could not be confirmed or the "
+            "containers could not be listed"
+        ),
+    )
+    p.add_argument("--state-dir", required=True, metavar="DIR")
     return ap.parse_args(argv)
 
 
@@ -1083,6 +1217,8 @@ def main(argv=None):
     a = parse_args(argv)
     if a.cmd == "run":
         return run(a)
+    if a.cmd == "sweep":
+        return sweep(a)
     return 2
 
 

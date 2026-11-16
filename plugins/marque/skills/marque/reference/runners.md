@@ -1,6 +1,6 @@
 # Runners
 
-A **runner** is where a suite runs. The local runner is the default and needs nothing: the command runs in the worktree. The **Beam** runner rents a sandbox, and Marque owns the whole lifecycle — nothing about the sandbox is left to the project's own tooling (ADR 0002). The project supplies only the environment and the suite command. The sweep is a later ticket; this page is the Beam runner's contract, its accounting and its limits.
+A **runner** is where a suite runs. The local runner is the default and needs nothing: the command runs in the worktree. The **Beam** runner rents a sandbox, and Marque owns the whole lifecycle — nothing about the sandbox is left to the project's own tooling (ADR 0002). The project supplies only the environment and the suite command. This page is the Beam runner's contract, its accounting, its sweep and its limits.
 
 ## The Beam runner contract
 
@@ -99,10 +99,35 @@ The commission's cap is `--cap AMOUNT`, in the same currency as `--rate`. Every 
 
 **Settle.** At teardown the reservation is replaced by the rate times the confirmed stop minus `started_at`, summed over the boxes, and the build by the wall time `image build` took, each as its own row keyed by its run id. The record's `cost` is the boxes' cost plus the build's. A run that dies unsettled counts at its worst case until the sweep. A local run writes no rows.
 
+## The sweep
+
+No sandbox outlives Marque unnoticed, and a teardown that could not be confirmed never under-counts spend: `suite.py sweep --state-dir DIR` is what closes both gaps. `ledger.py recover` runs it on every restart, and the orchestrator runs it by hand when something looks stuck.
+
+It acts only on the sandboxes Marque recorded in `beam/containers/`, and only on those whose run is no longer live. A run is **live** when another host recorded the box — another machine's run is never touched — or when its `pid` is still alive on this host. A file with no parsable `pid` is not live; a file written before the `host` line existed counts as this host's.
+
+A state dir without `beam/` never used Beam: the sweep prints nothing, calls nothing and exits 0, so a local-only project needs no CLI. Otherwise it asks `container list` once; if that fails it prints `sweep: cannot list containers` to stderr, touches nothing and exits 1.
+
+Each recorded box whose run is not live yields one line:
+
+- `live <id>: its run is still running (pid <pid> on <host>)` — left alone, ID file and all;
+- `gone <id>` — the box no longer exists; its ID file is removed;
+- `stopped <id>: confirmed` — stopped and confirmed gone; its ID file is removed;
+- `stopped <id>: unconfirmed` — the stop could not be confirmed; the ID file stays, and the sweep exits 1.
+
+Then it settles every run it found dead that has a reservation and no settlement, at that reservation — the worst case — printing `settled <run> at worst case <amount>`. A run that already settled priced its own unconfirmed boxes itself, so it is left alone.
+
+Every sandbox live on the account with no ID file of Marque's is reported as `unrecorded <id>: left alone`. The sweep never touches a sandbox it did not record, so other work on the same account is safe.
+
+Exit codes: 0 swept, 1 a teardown could not be confirmed or the containers could not be listed.
+
+### Unconfirmed teardown
+
+A stop the sweep cannot confirm leaves the run at its worst case in the ledger and keeps the box's ID file in the state dir, so the next sweep tries again. An unconfirmed teardown is a core notification: `a runner teardown that could not be confirmed`.
+
 ## The state dir
 
 - `beam/images/<sha256>` — the image ID for that Dockerfile's bytes. The image is built once per hash and reused while `beam image get` finds it.
-- `beam/containers/<container id>` — `pid`, `record` and `created`, written the moment the sandbox exists. A confirmed stop removes it.
+- `beam/containers/<container id>` — the box's `pid`, the `host` that recorded it, the `run` it belongs to, the `record`, when it was `created`, and its `worst` case. Written the moment the sandbox exists. A confirmed stop, or a sweep that confirms one, removes it; an unconfirmed teardown leaves it for the sweep.
 - `beam/slots/<k>` — the locked files that hold the account's live-sandbox slots. A process that dies frees its own.
 - `spend.tsv` — the commission ledger: one row per reservation and settlement.
 - `spend.lock` — the file lock every ledger read and append holds.

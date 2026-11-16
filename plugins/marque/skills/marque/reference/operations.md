@@ -32,7 +32,7 @@ Implementers and integration runs share one machine. If a project's full suite i
 
 Every paid run — an implementer's run, an integration run, an image build — reserves its worst case in `<state dir>/spend.tsv` before it starts. The run is refused when the spend so far plus that reservation would pass the commission's cap. A refused run falls back to the local runner, or exits 3 when the project's `## Runner` block says `local fallback: no`: there is nowhere else to run it.
 
-At teardown the reservation is settled from the box's `started_at` and the confirmed stop, and a build from the wall time it took. A reservation nobody settled — a crashed run's — counts at its worst case until the sweep settles it. The ledger is append-only under a file lock, one row per reservation and settlement. Details → `reference/runners.md`.
+At teardown the reservation is settled from the box's `started_at` and the confirmed stop, and a build from the wall time it took. A reservation nobody settled — a crashed run's — counts at its worst case until the sweep settles it. An unconfirmed teardown prices that box at its worst case, leaves its ID in the state dir for the sweep, and fires the core notification. The ledger is append-only under a file lock, one row per reservation and settlement. Details → `reference/runners.md`.
 
 ## Never kill by name
 
@@ -44,7 +44,7 @@ The guarded-landing rule and its reason are in `reference/landing.md`, enforced 
 
 ## Crash recovery
 
-On restart, before anything else, run `ledger.py recover`. For each row it lists:
+On restart, before anything else, run `ledger.py recover`. It also runs `suite.py sweep`, which tears down recorded Beam sandboxes whose run is no longer live and settles their runs at the worst case; an unconfirmed teardown there is a core notification. For each row it lists:
 
 1. `git -C <worktree> status` and `git log <target>..HEAD`.
 2. Stash uncommitted changes as `marque-<n>-recovery`; rebuild and run the suite.
