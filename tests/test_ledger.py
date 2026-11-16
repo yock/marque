@@ -14,6 +14,11 @@ STUBS = Path(__file__).resolve().parent / "stubs"
 
 def run(*args, state_dir, env=None):
     e = {k: v for k, v in os.environ.items() if k != "MARQUE_LEDGER_CRASH_BEFORE_RENAME"}
+    # `ledger.py recover` sweeps, and a sweep's settlement now reaches the
+    # per-machine ledger: never let it write the developer's real one.
+    home = Path(state_dir) / "home"
+    home.mkdir(parents=True, exist_ok=True)
+    e["HOME"] = str(home)
     e.update(env or {})
     return subprocess.run(
         [sys.executable, str(LEDGER), "--state-dir", str(state_dir), *args],
@@ -243,6 +248,9 @@ def stub_env(tmp):
     env = {k: v for k, v in os.environ.items() if not k.startswith("STUB_BEAM")}
     env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
     env["STUB_BEAM_STATE"] = str(Path(tmp) / "stub")
+    home = Path(tmp) / "home"
+    home.mkdir(exist_ok=True)
+    env["HOME"] = str(home)
     return env
 
 
@@ -253,6 +261,20 @@ def dead_pid():
     return process.pid
 
 
+def seed_dead_box(state_dir):
+    """A recorded box whose run is dead, and the stub's report that it is live."""
+    containers = state_dir / "beam" / "containers"
+    containers.mkdir(parents=True, exist_ok=True)
+    (containers / "box-9").write_text(
+        "pid: %d\nhost: %s\nrun: R1\nrecord: /tmp/one.record\n"
+        "created: 2026-01-01T00:00:00Z\nworst: 70.0000\n"
+        % (dead_pid(), os.uname().nodename)
+    )
+    stub = state_dir / "stub"
+    stub.mkdir(parents=True, exist_ok=True)
+    (stub / "containers.json").write_text('{"box-9": "2026-01-01T00:00:00Z"}')
+
+
 class RecoverSweepTest(unittest.TestCase):
     def test_recover_runs_the_sweep_after_the_in_flight_rows(self):
         # Crash recovery sweeps before it visits the rows' worktrees: the
@@ -260,17 +282,7 @@ class RecoverSweepTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp)
             (state_dir / "ledger.tsv").write_text(ALL_STATE_ROWS)
-            containers = state_dir / "beam" / "containers"
-            containers.mkdir(parents=True)
-            (containers / "box-9").write_text(
-                "pid: %d\nhost: %s\nrun: R1\nrecord: /tmp/one.record\n"
-                "created: 2026-01-01T00:00:00Z\nworst: 70.0000\n"
-                % (dead_pid(), os.uname().nodename)
-            )
-            (Path(tmp) / "stub").mkdir()
-            (Path(tmp) / "stub" / "containers.json").write_text(
-                '{"box-9": "2026-01-01T00:00:00Z"}'
-            )
+            seed_dead_box(state_dir)
 
             r = run("recover", state_dir=state_dir, env=stub_env(tmp))
 
@@ -283,6 +295,31 @@ class RecoverSweepTest(unittest.TestCase):
             self.assertEqual(lines[5], "stopped box-9: confirmed")
             self.assertEqual(
                 json.loads((Path(tmp) / "stub" / "containers.json").read_text()), {}
+            )
+
+    def test_the_sweeps_settlement_also_reaches_the_machine_ledger(self):
+        # R1 reserved 70.0000 - 1.0 per minute for the 4200 s TTL - and never
+        # settled: recovery closes it in the commission and machine ledgers.
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            seed_dead_box(state_dir)
+            (state_dir / "spend.tsv").write_text(
+                "time\tkind\trun\tamount\tnote\n"
+                "2026-01-01T00:00:00Z\treserve\tR1\t70.0000\tseed\n"
+            )
+
+            r = run("recover", state_dir=state_dir, env=stub_env(tmp))
+
+            self.assertEqual(r.returncode, 0, r.stderr)
+            machine = (
+                Path(tmp) / "home" / ".local" / "share" / "marque" / "spend.tsv"
+            )
+            rows = [
+                line.split("\t") for line in machine.read_text().splitlines()[1:]
+            ]
+            self.assertEqual(
+                [row[1:] for row in rows],
+                [["settle", "R1", "70.0000", "sweep: worst case"]],
             )
 
 
