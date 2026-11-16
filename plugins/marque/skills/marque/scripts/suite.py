@@ -1092,6 +1092,42 @@ def sweep(a):
     return 1 if unconfirmed else 0
 
 
+def spend(a):
+    """Print spend against the commission's cap and the machine's daily cap."""
+    state = Path(a.state_dir).resolve()
+    try:
+        daily_cap = read_daily_cap()
+    except ValueError:
+        print(
+            "suite.py: `daily cap` in ~/.config/marque/marque.md is not a "
+            "non-negative number",
+            file=sys.stderr,
+        )
+        return 2
+    ledger = state / "spend.tsv"
+    spent = spend_so_far(ledger_rows(state))
+    if a.cap is None:
+        print(
+            "commission: %.4f spent (settled + open reservations) in %s"
+            % (spent, ledger)
+        )
+    else:
+        print(
+            "commission: %.4f of %.4f cap spent (settled + open reservations) in %s"
+            % (spent, a.cap, ledger)
+        )
+    day = now()[:10]
+    machine = today_spend(ledger_rows(machine_dir()), day)
+    if daily_cap is None:
+        print("machine today (%s UTC): %.4f (no daily cap set)" % (day, machine))
+    else:
+        print(
+            "machine today (%s UTC): %.4f of %.4f daily cap"
+            % (day, machine, daily_cap)
+        )
+    return 0
+
+
 def run(a):
     """Run the suite and write the record; return the process exit code."""
     command = a.command[1:] if a.command[:1] == ["--"] else a.command
@@ -1296,6 +1332,23 @@ def parse_args(argv):
         ),
     )
     p.add_argument("--state-dir", required=True, metavar="DIR")
+
+    p = sub.add_parser(
+        "spend",
+        help="print spend against the commission cap and the machine's daily cap",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit codes: 0 reported, 2 `daily cap` in ~/.config/marque/marque.md "
+            "is not a non-negative number"
+        ),
+    )
+    p.add_argument("--state-dir", required=True, metavar="DIR")
+    p.add_argument(
+        "--cap",
+        type=non_negative_float,
+        metavar="AMOUNT",
+        help="the commission's paid-compute cap to report against",
+    )
     return ap.parse_args(argv)
 
 
@@ -1305,6 +1358,8 @@ def main(argv=None):
         return run(a)
     if a.cmd == "sweep":
         return sweep(a)
+    if a.cmd == "spend":
+        return spend(a)
     return 2
 
 

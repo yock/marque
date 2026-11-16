@@ -498,6 +498,16 @@ def live_ids(tmp):
     return sorted(live_containers(tmp))
 
 
+def run_spend(tmp, state, *args, env=None):
+    return subprocess.run(
+        [sys.executable, str(SUITE), "spend", "--state-dir", str(state), *args],
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        env=beam_env(tmp) if env is None else env,
+    )
+
+
 class BeamSandboxTest(BeamCase):
     def test_every_create_passes_a_ttl_of_max_wall_plus_600_seconds(self):
         # The block's 3600 s plus the agreed 600 s margin: 4200.
@@ -1578,6 +1588,69 @@ class BeamLedgerLockTest(unittest.TestCase):
                         len([1 for k, r, _ in rows if r == run_id and k == "settle"]),
                         1,
                     )
+
+
+class SpendCommandTest(unittest.TestCase):
+    """`suite.py spend`: the figures the developer checks against the dashboard."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = self._tmp.name
+        self.home = Path(self.tmp) / "home"
+        self.home.mkdir()
+        self.state = Path(self.tmp) / "state"
+        self.today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    def seed_both(self):
+        """r1 spent 12.3400 in the commission and 4.5600 on this machine today."""
+        seed_ledger(
+            self.state, ("reserve", "r1", "70.0000"), ("settle", "r1", "12.3400")
+        )
+        seed_machine_ledger(
+            self.home,
+            self.today + "T00:00:00Z",
+            ("reserve", "r1", "70.0000"),
+            ("settle", "r1", "4.5600"),
+        )
+
+    def test_spend_reports_the_two_figures_against_both_caps(self):
+        self.seed_both()
+        write_daily_cap(self.home, "15")
+        r = run_spend(self.tmp, self.state, "--cap", "20")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            r.stdout,
+            "commission: 12.3400 of 20.0000 cap spent (settled + open reservations)"
+            " in %s\nmachine today (%s UTC): 4.5600 of 15.0000 daily cap\n"
+            % (self.state.resolve() / "spend.tsv", self.today),
+        )
+
+    def test_spend_without_a_daily_cap_says_none_is_set(self):
+        self.seed_both()
+        r = run_spend(self.tmp, self.state, "--cap", "20")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.endswith("4.5600 (no daily cap set)\n"), r.stdout)
+
+    def test_spend_without_a_cap_names_only_the_spend(self):
+        self.seed_both()
+        write_daily_cap(self.home, "15")
+        r = run_spend(self.tmp, self.state)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            r.stdout.splitlines()[0],
+            "commission: 12.3400 spent (settled + open reservations) in %s"
+            % (self.state.resolve() / "spend.tsv"),
+        )
+
+    def test_spend_with_a_bad_daily_cap_exits_2(self):
+        write_daily_cap(self.home, "lots")
+        r = run_spend(self.tmp, self.state)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn(
+            "`daily cap` in ~/.config/marque/marque.md is not a non-negative number",
+            r.stderr,
+        )
 
 
 class LocalSpendTest(unittest.TestCase):
