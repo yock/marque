@@ -91,6 +91,10 @@ The commission's cap is `--cap AMOUNT`, in the same currency as `--rate`. Every 
 
 **The ledger** is `<state>/spend.tsv`: tab-separated, one row per reservation and settlement, append-only under **`<state>/spend.lock`**, an exclusive blocking lock, with every append fsynced. Its header is `time`, `kind`, `run`, `amount`, `note`: `kind` is `reserve` or `settle`, `time` is UTC, `amount` has four decimal places, and `note` is the record path or `build`. A run id is its UTC start, its pid and eight random hex characters; its build's id is `<run id>.build`.
 
+**The machine ledger.** Every Beam run also reserves and settles in `~/.local/share/marque/spend.tsv`, under `~/.local/share/marque/spend.lock`: the same rows, the same run ids, the same format. Every repo on the machine shares one provider account, so this is the ledger an optional per-machine daily cap counts.
+
+**The per-machine daily cap.** `~/.config/marque/marque.md` may set a `daily cap` in its `## paid compute` section (→ `reference/commission.md`). A run counts against the UTC day of its **reservation**, even if it settles after midnight. A run is refused when either cap would be passed, so the tighter one wins; the refusal names it: `cap: spend … + reservation … > cap …` or `daily cap: spend … today + reservation … > daily cap …`. The locks are taken in a fixed order — the commission ledger, then the machine ledger — so two runs can never deadlock.
+
 **Spend so far** is, for each run id, its last `settle` amount if it has one and its `reserve` amount otherwise, summed. Malformed lines are skipped.
 
 **Reserve.** Before anything is created, the run reserves each part's worst case — `n_parts × rate × (max wall time + 600) / 60` — plus `rate × 600 / 60` under `<run id>.build` when the image has to be built. It is one check, taken before the build: if spend so far plus the whole reservation would pass the cap, nothing starts.
@@ -98,6 +102,15 @@ The commission's cap is `--cap AMOUNT`, in the same currency as `--rate`. Every 
 **Refuse and fall back.** A refused run prints `suite.py: paid compute refused: cap: spend … + reservation … > cap …` and falls back to the local runner, whose record reads `runner: local` and then `refused: <the same reason>`. When the block says `local fallback: no`, it exits 3 instead and writes no record.
 
 **Settle.** At teardown the reservation is replaced by the rate times the confirmed stop minus `started_at`, summed over the boxes, and the build by the wall time `image build` took, each as its own row keyed by its run id. The record's `cost` is the boxes' cost plus the build's. A run that dies unsettled counts at its worst case until the sweep. A local run writes no rows.
+
+**The spend report.** `suite.py spend --state-dir DIR [--cap AMOUNT]` prints spend against both caps:
+
+```
+commission: 12.3400 spent (settled + open reservations) in <state dir>/spend.tsv
+machine today (2026-11-16 UTC): 4.5600 of 15.0000 daily cap
+```
+
+With `--cap`, the first line reads `commission: 12.3400 of 20.0000 cap spent (settled + open reservations) in …`; without a configured daily cap, the second reads `… (no daily cap set)`. A missing ledger counts as 0. The ten-landing summary quotes both lines, so the figures can be checked against the provider's dashboard.
 
 ## The sweep
 
@@ -131,6 +144,8 @@ A stop the sweep cannot confirm leaves the run at its worst case in the ledger a
 - `beam/slots/<k>` — the locked files that hold the account's live-sandbox slots. A process that dies frees its own.
 - `spend.tsv` — the commission ledger: one row per reservation and settlement.
 - `spend.lock` — the file lock every ledger read and append holds.
+
+The per-machine ledger is not in the state dir: `~/.local/share/marque/spend.tsv` and its `spend.lock` hold every repo's paid rows on this machine.
 
 ## The allowlist
 

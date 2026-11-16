@@ -17,12 +17,17 @@ sandbox each — on Beam instead, with Marque owning the whole lifecycle:
 build the image, create the containers, upload the exact tree, run, tear
 down, account. It needs `--state-dir`, `--rate` and `--cap`, and takes
 `--concurrency`, the account's limit on live sandboxes: a run without a free
-slot waits. Every paid run reserves its worst case against `--cap` first and
-settles it at teardown.
+slot waits. Every paid run reserves its worst case against `--cap` and the
+optional per-machine `daily cap` first, and settles it at teardown.
+
+`spend --state-dir DIR [--cap AMOUNT]` prints spend against the commission's
+cap and the machine's daily cap, so the figures can be checked against the
+provider's dashboard.
 
 Exit codes: 0 pass; 1 fail; 2 refused before starting (dirty worktree, not a
-git worktree, no command, a missing Beam term), nothing written; 3 paid
-compute refused when the block says `local fallback: no`.
+git worktree, no command, a missing Beam term, a bad per-machine `daily cap`),
+nothing written; 3 paid compute refused when the block says
+`local fallback: no`.
 """
 import argparse
 import contextlib
@@ -154,6 +159,43 @@ def read_runner_block(worktree):
             block[key.strip()] = value.strip()
             in_commands = False
     return block
+
+
+def read_daily_cap():
+    """The per-machine `daily cap` from `~/.config/marque/marque.md`, or None.
+
+    It lives in the `## paid compute` section, one `key: value` per line, and
+    runs to the next `## ` heading. A missing file, section or key is no cap;
+    a value that is not a non-negative number raises ValueError.
+    """
+    try:
+        lines = user_config().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    inside = False
+    for line in lines:
+        if not inside:
+            if line.strip() == "## paid compute":
+                inside = True
+            continue
+        if line.startswith("## "):
+            break
+        stripped = line.strip()
+        if not stripped or stripped.startswith("```"):
+            continue
+        if ": " not in stripped:
+            continue
+        key, value = stripped.split(": ", 1)
+        if key.strip() != "daily cap":
+            continue
+        try:
+            cap = float(value.strip())
+        except ValueError:
+            raise ValueError("daily cap is not a number: %r" % value)
+        if cap < 0:
+            raise ValueError("daily cap is negative: %r" % value)
+        return cap
+    return None
 
 
 class RunLog:
@@ -309,6 +351,16 @@ def new_run_id():
     )
 
 
+def machine_dir():
+    """The per-machine ledger's directory: paid runs across every repo on this host."""
+    return Path(os.environ["HOME"]) / ".local" / "share" / "marque"
+
+
+def user_config():
+    """The per-user config, `~/.config/marque/marque.md`."""
+    return Path(os.environ["HOME"]) / ".config" / "marque" / "marque.md"
+
+
 @contextlib.contextmanager
 def ledger_lock(state):
     """The ledger's exclusive lock, blocking and held across a read and its append."""
@@ -368,6 +420,30 @@ def spend_so_far(rows):
     return total
 
 
+def today_spend(rows, day):
+    """What runs reserved on `day` (UTC, YYYY-MM-DD) spent: settle else reserve.
+
+    A run counts on the day of its reservation, even if it settles after
+    midnight. A settlement with no reservation of its own counts on its own day.
+    """
+    reserved = {}
+    settled = {}
+    for row in rows:
+        if row["kind"] == "reserve":
+            reserved[row["run"]] = row
+        elif row["kind"] == "settle":
+            settled[row["run"]] = row
+    total = 0.0
+    for run, row in reserved.items():
+        if row["time"][:10] != day:
+            continue
+        total += settled[run]["amount"] if run in settled else row["amount"]
+    for run, row in settled.items():
+        if run not in reserved and row["time"][:10] == day:
+            total += row["amount"]
+    return total
+
+
 def append_ledger(state, kind, entries):
     """Append one row per (run id, amount, note); caller holds the lock."""
     path = Path(state) / "spend.tsv"
@@ -383,9 +459,9 @@ def append_ledger(state, kind, entries):
         os.fsync(f.fileno())
 
 
-def reserve(state, entries, cap):
-    """Reserve each entry's worst case, or return why the cap refuses them."""
-    with ledger_lock(state):
+def reserve(state, entries, cap, daily_cap):
+    """Reserve each entry's worst case, or return why the tighter cap refuses it."""
+    with ledger_lock(state), ledger_lock(machine_dir()):
         spent = spend_so_far(ledger_rows(state))
         wanted = sum(amount for _, amount, _ in entries)
         if spent + wanted > cap:
@@ -394,14 +470,23 @@ def reserve(state, entries, cap):
                 wanted,
                 cap,
             )
+        if daily_cap is not None:
+            today = today_spend(ledger_rows(machine_dir()), now()[:10])
+            if today + wanted > daily_cap:
+                return (
+                    "daily cap: spend %.4f today + reservation %.4f "
+                    "> daily cap %.4f" % (today, wanted, daily_cap)
+                )
         append_ledger(state, "reserve", entries)
+        append_ledger(machine_dir(), "reserve", entries)
     return None
 
 
 def settle(state, run_id, amount, note):
     """Replace a run's reservation with what it actually spent."""
-    with ledger_lock(state):
+    with ledger_lock(state), ledger_lock(machine_dir()):
         append_ledger(state, "settle", [(run_id, amount, note)])
+        append_ledger(machine_dir(), "settle", [(run_id, amount, note)])
 
 
 class Slots:
@@ -1012,6 +1097,42 @@ def sweep(a):
     return 1 if unconfirmed else 0
 
 
+def spend(a):
+    """Print spend against the commission's cap and the machine's daily cap."""
+    state = Path(a.state_dir).resolve()
+    try:
+        daily_cap = read_daily_cap()
+    except ValueError:
+        print(
+            "suite.py: `daily cap` in ~/.config/marque/marque.md is not a "
+            "non-negative number",
+            file=sys.stderr,
+        )
+        return 2
+    ledger = state / "spend.tsv"
+    spent = spend_so_far(ledger_rows(state))
+    if a.cap is None:
+        print(
+            "commission: %.4f spent (settled + open reservations) in %s"
+            % (spent, ledger)
+        )
+    else:
+        print(
+            "commission: %.4f of %.4f cap spent (settled + open reservations) in %s"
+            % (spent, a.cap, ledger)
+        )
+    day = now()[:10]
+    machine = today_spend(ledger_rows(machine_dir()), day)
+    if daily_cap is None:
+        print("machine today (%s UTC): %.4f (no daily cap set)" % (day, machine))
+    else:
+        print(
+            "machine today (%s UTC): %.4f of %.4f daily cap"
+            % (day, machine, daily_cap)
+        )
+    return 0
+
+
 def run(a):
     """Run the suite and write the record; return the process exit code."""
     command = a.command[1:] if a.command[:1] == ["--"] else a.command
@@ -1083,6 +1204,12 @@ def run(a):
                 "a beam run needs a max wall time: `max wall time` in the "
                 "`## Runner` block, or --max-wall"
             )
+    try:
+        daily_cap = read_daily_cap()
+    except ValueError:
+        return refuse(
+            "`daily cap` in ~/.config/marque/marque.md is not a non-negative number"
+        )
     commands = commands if from_block else [shlex.join(command)]
     image_id = cached_image(Discard(), dockerfile, a.state_dir)
     run_id = new_run_id()
@@ -1091,7 +1218,7 @@ def run(a):
     ]
     if image_id is None:
         entries.append((run_id + ".build", a.rate * MARGIN / 60, "build"))
-    reason = reserve(a.state_dir, entries, a.cap)
+    reason = reserve(a.state_dir, entries, a.cap, daily_cap)
     if reason is not None:
         print("suite.py: paid compute refused: %s" % reason, file=sys.stderr)
         if fallback == "no":
@@ -1210,6 +1337,23 @@ def parse_args(argv):
         ),
     )
     p.add_argument("--state-dir", required=True, metavar="DIR")
+
+    p = sub.add_parser(
+        "spend",
+        help="print spend against the commission cap and the machine's daily cap",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit codes: 0 reported, 2 `daily cap` in ~/.config/marque/marque.md "
+            "is not a non-negative number"
+        ),
+    )
+    p.add_argument("--state-dir", required=True, metavar="DIR")
+    p.add_argument(
+        "--cap",
+        type=non_negative_float,
+        metavar="AMOUNT",
+        help="the commission's paid-compute cap to report against",
+    )
     return ap.parse_args(argv)
 
 
@@ -1219,6 +1363,8 @@ def main(argv=None):
         return run(a)
     if a.cmd == "sweep":
         return sweep(a)
+    if a.cmd == "spend":
+        return spend(a)
     return 2
 
 
