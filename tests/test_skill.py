@@ -425,6 +425,19 @@ class RunnersReferenceTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, text)
 
+    def test_the_beam_runner_reference_documents_parallel_parts_and_runner_concurrency(self):
+        text = self.runners_md()
+        for marker in (
+            "--concurrency",
+            "beam/slots/",
+            "waits",
+            "container.<i>",
+            "teardown.<i>",
+            "boxes",
+        ):
+            with self.subTest(marker=marker):
+                self.assertIn(marker, text)
+
     def test_runner_configuration_is_an_override_not_an_extension(self):
         text = (REFERENCE_DIR / "extensions.md").read_text()
         self.assertIn("not an extension", text)
