@@ -849,6 +849,7 @@ def run_beam(
                     cost += rate * (stopped_at - started_at).total_seconds() / 60
                 else:
                     cost += rate * ttl / 60
+            settle(state, run_id, cost, str(record))
             lines = ["ended: %s" % now()]
             lines += [
                 "exit.%d: %d" % (part, statuses[part])

@@ -594,6 +594,28 @@ class BeamCapTest(BeamCase):
         self.assert_no_violations()
 
 
+    def test_a_settled_run_is_charged_from_started_at_and_the_confirmed_stop(self):
+        # The stub ages the box 600 s = 10 wall-minutes at 1.0; the reservation
+        # was the 4200 s worst case, 70.0000. Settlement replaces the
+        # reservation with the measured figure.
+        env = beam_env(self.tmp)
+        env["STUB_BEAM_STARTED_AGO"] = "600"
+        r = self.run_it(env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = spend_rows(self.state)
+        run_ids = {run for _, run, _ in rows if not run.endswith(".build")}
+        self.assertEqual(len(run_ids), 1, rows)
+        run_id = run_ids.pop()
+        self.assertIn(("reserve", run_id, 70.0), rows)
+        settled = [
+            amount for kind, run, amount in rows if kind == "settle" and run == run_id
+        ]
+        self.assertEqual(len(settled), 1, rows)
+        self.assertGreaterEqual(settled[0], 10.0)
+        self.assertLessEqual(settled[0], 11.0)
+        self.assert_no_violations()
+
+
 class BeamNoFallbackTest(BeamCase):
     """`local fallback: no`: a refused run has nowhere else to go."""
 
