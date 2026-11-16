@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""A stub `beam` for suite.py's Beam runner tests, with the CLI's allowlist.
+
+STUB_BEAM_STATE         required: the state dir. Holds images.json,
+                        containers.json (live containers: id -> started_at) and
+                        calls.log (one line per call: the argv joined by spaces).
+STUB_BEAM_STARTED_AGO   seconds to subtract from a new box's `started_at`
+                        (default 0), so a test can age a container.
+STUB_BEAM_ID_DIR        suite.py's container-state dir. `container cp` checks
+                        that `<dir>/<container id>` exists and logs a VIOLATION
+                        when it does not, which proves the ID was recorded
+                        before the upload.
+STUB_BEAM_EXEC_SLEEP    seconds a non-extraction `container exec` sleeps
+                        (default 0), so a test can signal while it runs.
+STUB_BEAM_EXEC_STATUS   the status a non-extraction `container exec` exits
+                        with (default 0).
+STUB_BEAM_STOP_IGNORED  when 1, `container stop` leaves the box live, so
+                        teardown cannot be confirmed.
+
+Only `image build`, `image get`, `container create`, `container cp`,
+`container exec`, `container stop` and `container list` are allowed. Anything
+else is logged as `VIOLATION <argv>` and exits 99: a test that sees a
+violation fails.
+"""
+import json
+import os
+import sys
+import time
+from datetime import datetime, timedelta, timezone
+
+ALLOWED = (
+    ("image", "build"),
+    ("image", "get"),
+    ("container", "create"),
+    ("container", "cp"),
+    ("container", "exec"),
+    ("container", "stop"),
+    ("container", "list"),
+)
+
+
+def state_dir():
+    path = os.environ["STUB_BEAM_STATE"]
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def log(argv):
+    with open(os.path.join(state_dir(), "calls.log"), "a", encoding="utf-8") as f:
+        f.write(" ".join(argv) + "\n")
+
+
+def load(name, default):
+    path = os.path.join(state_dir(), name)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return default
+
+
+def save(name, data):
+    path = os.path.join(state_dir(), name)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+
+def next_id(known, prefix):
+    numbers = [int(key.split("-")[1]) for key in known if key.startswith(prefix + "-")]
+    return "%s-%d" % (prefix, max(numbers) + 1 if numbers else 1)
+
+
+def option(argv, name):
+    return argv[argv.index(name) + 1] if name in argv else None
+
+
+def stamp(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def container_id_from(arg):
+    host, sep, _ = arg.partition(":")
+    return host if sep else None
+
+
+def main(argv):
+    if tuple(argv[:2]) not in ALLOWED:
+        log(["VIOLATION"] + argv)
+        print("stub beam: `%s` is not allowlisted" % " ".join(argv[:2]), file=sys.stderr)
+        return 99
+    log(argv)
+
+    verb = tuple(argv[:2])
+
+    if verb == ("image", "build"):
+        if not option(argv, "--dockerfile") or option(argv, "--format") != "json":
+            print("stub beam: image build needs --dockerfile and --format json", file=sys.stderr)
+            return 1
+        images = load("images.json", {})
+        image_id = next_id(images, "img")
+        images[image_id] = {"dockerfile": option(argv, "--dockerfile")}
+        save("images.json", images)
+        print("building...", file=sys.stderr)
+        print(json.dumps({"success": True, "image_id": image_id}))
+        return 0
+
+    if verb == ("image", "get"):
+        image_id = argv[2] if len(argv) > 2 else ""
+        images = load("images.json", {})
+        exists = image_id in images
+        print(json.dumps({"image_id": image_id, "exists": exists}))
+        return 0 if exists else 1
+
+    if verb == ("container", "create"):
+        if option(argv, "--ttl") is None:
+            log(["VIOLATION", "create-without-ttl"])
+            print("stub beam: container create needs --ttl", file=sys.stderr)
+            return 99
+        if option(argv, "--format") != "json":
+            print("stub beam: container create needs --format json", file=sys.stderr)
+            return 1
+        ago = int(os.environ.get("STUB_BEAM_STARTED_AGO", "0"))
+        started = datetime.now(timezone.utc) - timedelta(seconds=ago)
+        live = load("containers.json", {})
+        container_id = next_id(live, "box")
+        live[container_id] = stamp(started)
+        save("containers.json", live)
+        print(json.dumps({"container_id": container_id, "status": "submitted"}))
+        return 0
+
+    if verb == ("container", "cp"):
+        if len(argv) < 4:
+            print("stub beam: container cp needs SOURCE and DEST", file=sys.stderr)
+            return 1
+        check = os.environ.get("STUB_BEAM_ID_DIR")
+        container_id = container_id_from(argv[3]) or container_id_from(argv[2])
+        if check and container_id and not os.path.exists(os.path.join(check, container_id)):
+            log(["VIOLATION", "id-not-recorded"])
+            print("stub beam: %s was not recorded before the upload" % container_id, file=sys.stderr)
+            return 99
+        return 0
+
+    if verb == ("container", "exec"):
+        if option(argv, "--timeout") is None:
+            log(["VIOLATION", "exec-without-timeout"])
+            print("stub beam: container exec needs --timeout", file=sys.stderr)
+            return 99
+        command = argv[argv.index("--") + 1:] if "--" in argv else []
+        text = " ".join(command)
+        if "tar -xf" in text:
+            return 0
+        time.sleep(float(os.environ.get("STUB_BEAM_EXEC_SLEEP", "0")))
+        print("stub ran: %s" % text)
+        return int(os.environ.get("STUB_BEAM_EXEC_STATUS", "0"))
+
+    if verb == ("container", "stop"):
+        container_id = argv[2] if len(argv) > 2 else ""
+        if os.environ.get("STUB_BEAM_STOP_IGNORED") != "1":
+            live = load("containers.json", {})
+            live.pop(container_id, None)
+            save("containers.json", live)
+        print("Stopped container: %s" % container_id)
+        return 0
+
+    if verb == ("container", "list"):
+        live = load("containers.json", {})
+        print(json.dumps([
+            {"container_id": key, "started_at": value}
+            for key, value in sorted(live.items())
+        ]))
+        return 0
+
+    return 99
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

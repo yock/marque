@@ -1,12 +1,31 @@
 """suite.py's CLI against a temporary git repo, with the record outside it."""
+import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SUITE = REPO / "plugins" / "marque" / "skills" / "marque" / "scripts" / "suite.py"
+STUBS = Path(__file__).resolve().parent / "stubs"
+
+
+def beam_env(tmp):
+    """The env a Beam run needs: the stub first on PATH and its state dir."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STUB_BEAM")}
+    env["PATH"] = str(STUBS) + os.pathsep + env.get("PATH", "")
+    env["STUB_BEAM_STATE"] = str(Path(tmp) / "stub")
+    env["STUB_BEAM_ID_DIR"] = str(Path(tmp) / "state" / "beam" / "containers")
+    return env
+
+
+def beam_calls(tmp):
+    path = Path(tmp) / "stub" / "calls.log"
+    return path.read_text().splitlines() if path.exists() else []
 
 
 def sh(*args, cwd):
@@ -171,3 +190,21 @@ class NoCommandTest(unittest.TestCase):
             self.assertEqual(r.returncode, 2, r.stderr)
             self.assertIn("--", r.stderr)
             self.assertFalse(record.exists())
+
+
+class BeamStubAllowlistTest(unittest.TestCase):
+    def test_a_command_outside_the_allowlist_exits_99_and_is_logged(self):
+        # The seven allowed pairs are `image build|get` and `container
+        # create|cp|exec|stop|list`; `beam status` prints a token prefix and
+        # must never run (ticket #44).
+        with tempfile.TemporaryDirectory() as tmp:
+            r = subprocess.run(
+                [str(STUBS / "beam"), "status"],
+                capture_output=True,
+                text=True,
+                env=beam_env(tmp),
+            )
+            self.assertEqual(r.returncode, 99, r.stderr)
+            violations = [line for line in beam_calls(tmp) if line.startswith("VIOLATION")]
+            self.assertEqual(len(violations), 1, beam_calls(tmp))
+            self.assertIn("status", violations[0])
